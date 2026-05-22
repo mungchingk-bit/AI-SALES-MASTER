@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 环境变量
+.env
+
+# 运行时数据（含销售对话、客户信息等敏感数据，不上传）
+data/styles/
+data/sessions/
+data/evaluations/
+data/knowledge/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+~$*
+*.tmp
