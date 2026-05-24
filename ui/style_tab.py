@@ -3,133 +3,30 @@ import os
 
 import gradio as gr
 
-from core.style_extractor import StyleExtractor
-from core.llm_client import get_client
 from storage.style_store import StyleStore
-from utils.file_parser import parse_file
-from utils.desensitizer import desensitize_text, preview_desensitization
-from prompts.style_extraction import STYLE_COMPARISON_PROMPT
 
 import config
 
 
-def create_style_tab() -> gr.Blocks:
+def create_style_tab() -> None:
     store = StyleStore()
 
-    def preview_before_extract(file):
-        """上传文件后预览脱敏效果。"""
-        if file is None:
-            return "请上传文件", ""
-
-        try:
-            with open(file.name, "r", encoding="utf-8") as f:
-                content = f.read(5000)  # 只预览前5000字符
-
-            # 解析对话
-            messages = parse_file(file.name)
-            if not messages:
-                return "无法解析文件，请检查格式", ""
-
-            preview = f"解析到 {len(messages)} 条对话记录。\n\n"
-
-            # 如果使用云端模型，展示脱敏预览
-            if config.LLM_PROVIDER == "claude" and config.DESENSITIZE_ENABLED:
-                original_text = "\n".join(msg.content for msg in messages[:20])
-                desensitize_info = preview_desensitization(original_text)
-                if "未检测到" not in desensitize_info:
-                    preview += f"**云端模式脱敏预览：**\n{desensitize_info}\n\n"
-                    preview += "提取时将自动替换上述敏感信息，风格特征不受影响。"
-                else:
-                    preview += "未检测到敏感信息。"
-            else:
-                preview += f"**当前为本地模型模式**，数据不出本机，无需脱敏。"
-
-            return preview, ""
-        except Exception as e:
-            return f"预览失败：{str(e)}", ""
-
-    def upload_and_extract(file, style_name):
-        """提取销售风格。"""
-        if file is None:
-            return "请上传文件", _refresh_styles()
-
-        try:
-            # Parse the uploaded file
-            messages = parse_file(file.name)
-            if not messages:
-                return "无法从文件中解析出对话记录，请检查文件格式", _refresh_styles()
-
-            # Extract style
-            extractor = StyleExtractor()
-            profile = extractor.extract(messages, source_file=os.path.basename(file.name))
-
-            # Override name if provided
-            if style_name and style_name.strip():
-                profile.name = style_name.strip()
-
-            # Check slot limit
-            existing = store.list_all()
-            if len(existing) >= config.MAX_STYLE_SLOTS:
-                return f"风格槽位已满（最多{config.MAX_STYLE_SLOTS}个），请先删除已有风格", _refresh_styles()
-
-            # Save
-            store.save(profile)
-
-            provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
-            return f"风格「{profile.name}」提取成功！({provider_label})\n\n{profile.description}", _refresh_styles()
-        except Exception as e:
-            return f"提取失败：{str(e)}", _refresh_styles()
-
-    def compare_styles(style_a_name, style_b_name):
-        """Compare two styles."""
-        if not style_a_name or not style_b_name:
-            return "请选择两种风格进行对比"
-        if style_a_name == style_b_name:
-            return "请选择不同的风格进行对比"
-
-        profiles = store.list_all()
-        profile_a = next((p for p in profiles if p.name == style_a_name), None)
-        profile_b = next((p for p in profiles if p.name == style_b_name), None)
-
-        if not profile_a or not profile_b:
-            return "未找到所选风格"
-
-        prompt = STYLE_COMPARISON_PROMPT.format(
-            style_a_name=profile_a.name,
-            style_a_traits=json.dumps(profile_a.extracted_traits, ensure_ascii=False, indent=2),
-            style_b_name=profile_b.name,
-            style_b_traits=json.dumps(profile_b.extracted_traits, ensure_ascii=False, indent=2),
-        )
-
-        try:
-            client = get_client()
-            result = client.chat(
-                messages=[],
-                system_prompt=prompt,
-                temperature=config.EXTRACTION_TEMP,
-                max_tokens=2048,
-            )
-            return result
-        except Exception as e:
-            return f"对比失败：{str(e)}"
+    def get_style_names():
+        return [p.name for p in store.list_all()]
 
     def _refresh_styles():
-        """Refresh the style display."""
         profiles = store.list_all()
         if not profiles:
             return "暂无风格档案，请上传销售对话文件来提取风格"
-
         lines = []
         for i, p in enumerate(profiles):
             traits = p.extracted_traits
             confidence_count = sum(1 for v in p.confidence_scores.values() if v > 0.5)
             total_count = len(p.confidence_scores) if p.confidence_scores else 7
-
             lines.append(f"### 风格 {i+1}：{p.name}")
             lines.append(f"- **来源**：{p.source_file or '未知'}")
             lines.append(f"- **概述**：{p.description}")
             lines.append(f"- **置信度**：{confidence_count}/{total_count} 维度高置信")
-
             if traits.get("key_phrases"):
                 lines.append(f"- **标志性用语**：{', '.join(traits['key_phrases'][:5])}")
             if traits.get("tone"):
@@ -138,80 +35,566 @@ def create_style_tab() -> gr.Blocks:
                 lines.append(f"- **异议处理**：{traits['objection_strategy']}")
             if traits.get("closing_style"):
                 lines.append(f"- **成交风格**：{traits['closing_style']}")
-
             lines.append("")
+        return "\n".join(lines)
+
+    def preview_before_extract(file):
+        from utils.file_parser import parse_file
+        from utils.desensitizer import preview_desensitization
+        if file is None:
+            return "请上传文件", ""
+        try:
+            messages = parse_file(file.name)
+            if not messages:
+                return "无法解析文件，请检查格式", ""
+            preview = f"解析到 {len(messages)} 条对话记录。\n\n"
+            if config.LLM_PROVIDER == "claude" and config.DESENSITIZE_ENABLED:
+                original_text = "\n".join(msg.content for msg in messages[:20])
+                desensitize_info = preview_desensitization(original_text)
+                if "未检测到" not in desensitize_info:
+                    preview += f"**云端模式脱敏预览：**\n{desensitize_info}\n\n提取时将自动替换上述敏感信息。"
+                else:
+                    preview += "未检测到敏感信息。"
+            else:
+                preview += "**当前为本地模型模式**，数据不出本机，无需脱敏。"
+            return preview, ""
+        except Exception as e:
+            return f"预览失败：{str(e)}", ""
+
+    def upload_and_extract(file, style_name):
+        from utils.file_parser import parse_file
+        from core.style_extractor import StyleExtractor
+        if file is None:
+            return "请上传文件", _refresh_styles()
+        try:
+            messages = parse_file(file.name)
+            if not messages:
+                return "无法从文件中解析出对话记录，请检查文件格式", _refresh_styles()
+            extractor = StyleExtractor()
+            profile = extractor.extract(messages, source_file=os.path.basename(file.name))
+            if style_name and style_name.strip():
+                profile.name = style_name.strip()
+            existing = store.list_all()
+            if len(existing) >= config.MAX_STYLE_SLOTS:
+                return f"风格槽位已满（最多{config.MAX_STYLE_SLOTS}个），请先删除已有风格", _refresh_styles()
+            store.save(profile)
+            provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
+            return f"风格「{profile.name}」提取成功！({provider_label})\n\n{profile.description}", _refresh_styles()
+        except Exception as e:
+            return f"提取失败：{str(e)}", _refresh_styles()
+
+    def import_from_knowledge_base():
+        """从知识库中已导入的资料提取销售风格，同名销售自动合并，同时生成面聊汇报。"""
+        import re
+        from storage.knowledge_store import KnowledgeStore
+        from core.style_extractor import StyleExtractor
+        from core.conversation_analyzer import ConversationAnalyzer
+        from storage.report_store import ReportStore
+        from models.chat_message import ChatMessage
+        knowledge_store = KnowledgeStore()
+        extractor = StyleExtractor()
+        analyzer = ConversationAnalyzer()
+        report_store = ReportStore()
+        existing = store.list_all()
+        # name_map: 销售名字 → StyleProfile（用于合并）
+        name_map = {p.name.replace("式", "").replace("面聊", ""): p for p in existing}
+        existing_reports = {r.source_file for r in report_store.list_all()}
+        results = []
+
+        # 从话术库提取风格
+        scripts = knowledge_store.list_by_category("script_library")
+        for entry in scripts:
+            match = re.search(r"销售(\w+)", entry.title)
+            if not match:
+                continue
+            sales_name = match.group(1)
+            style_name = f"{sales_name}式"
+
+            if sales_name in name_map and name_map[sales_name].source_file == entry.source_file:
+                results.append(f"[跳过] 风格「{style_name}」已存在（话术库）")
+                continue
+
+            try:
+                content = entry.content[:5000]
+                messages = [ChatMessage(role="user", content=content)]
+                profile = extractor.extract(messages, source_file=entry.source_file)
+                profile.name = style_name
+
+                if sales_name in name_map:
+                    merged = store.merge(name_map[sales_name], profile, merged_name=style_name)
+                    name_map[sales_name] = merged
+                    results.append(f"[合并] 风格「{style_name}」已与现有档案合并")
+                else:
+                    store.save(profile)
+                    name_map[sales_name] = profile
+                    results.append(f"[成功] 风格「{profile.name}」: {profile.description}")
+            except Exception as e:
+                results.append(f"[失败] {entry.title}: {str(e)}")
+
+        # 从面聊记录提取风格 + 生成汇报
+        chats = knowledge_store.list_by_category("customer_doc")
+        for entry in chats:
+            match = re.search(r"销售(\w+)", entry.title)
+            if not match:
+                continue
+            sales_name = match.group(1)
+            style_name = f"{sales_name}式"
+
+            try:
+                content = entry.content[:8000]
+                messages = [ChatMessage(role="user", content=content)]
+                profile = extractor.extract(messages, source_file=entry.source_file)
+                profile.name = f"{sales_name}面聊式"
+
+                if sales_name in name_map:
+                    merged = store.merge(name_map[sales_name], profile, merged_name=style_name)
+                    name_map[sales_name] = merged
+                    results.append(f"[合并] 风格「{style_name}」已与话术库档案合并")
+                else:
+                    profile.name = style_name
+                    store.save(profile)
+                    name_map[sales_name] = profile
+                    results.append(f"[成功] 风格「{profile.name}」: {profile.description}")
+            except Exception as e:
+                results.append(f"[失败] {entry.title}: {str(e)}")
+
+            # 生成面聊汇报
+            if entry.source_file not in existing_reports:
+                try:
+                    report = analyzer.analyze(
+                        content=entry.content,
+                        sales_name=sales_name,
+                        source_file=entry.source_file,
+                        source_title=entry.title,
+                    )
+                    report_store.save(report)
+                    existing_reports.add(entry.source_file)
+                    results.append(f"[汇报] {entry.title}：{report.summary}")
+                except Exception as e:
+                    results.append(f"[汇报失败] {entry.title}: {str(e)}")
+            else:
+                results.append(f"[跳过] {entry.title}汇报已存在")
+
+        return "\n".join(results), _refresh_styles(), _refresh_report_choices()
+
+    def compare_styles(style_a_name, style_b_name):
+        from prompts.style_extraction import STYLE_COMPARISON_PROMPT
+        from core.llm_client import get_client
+        if not style_a_name or not style_b_name:
+            return "请选择两种风格进行对比"
+        if style_a_name == style_b_name:
+            return "请选择不同的风格进行对比"
+        profiles = store.list_all()
+        profile_a = next((p for p in profiles if p.name == style_a_name), None)
+        profile_b = next((p for p in profiles if p.name == style_b_name), None)
+        if not profile_a or not profile_b:
+            return "未找到所选风格"
+        prompt = STYLE_COMPARISON_PROMPT.format(
+            style_a_name=profile_a.name,
+            style_a_traits=json.dumps(profile_a.extracted_traits, ensure_ascii=False, indent=2),
+            style_b_name=profile_b.name,
+            style_b_traits=json.dumps(profile_b.extracted_traits, ensure_ascii=False, indent=2),
+        )
+        try:
+            client = get_client()
+            result = client.chat(messages=[], system_prompt=prompt, temperature=config.EXTRACTION_TEMP, max_tokens=2048)
+            return result
+        except Exception as e:
+            return f"对比失败：{str(e)}"
+
+    def _refresh_report_choices():
+        from storage.report_store import ReportStore
+        report_store = ReportStore()
+        reports = report_store.list_all()
+        if not reports:
+            return gr.update(choices=[], value=None)
+        choices = [f"{r.sales_name} | {r.source_title} | {r.created_at[:10]}" for r in reports]
+        return gr.update(choices=choices, value=choices[0] if choices else None)
+
+    def _format_report(report) -> str:
+        lines = [f"## {report.source_title}\n"]
+        lines.append(f"**销售**：{report.sales_name}  |  **日期**：{report.created_at[:10]}")
+        lines.append(f"\n**整体评价**：{report.summary}\n")
+        if report.highlights:
+            lines.append("### 做得好的地方")
+            for i, h in enumerate(report.highlights, 1):
+                lines.append(f"{i}. {h}")
+            lines.append("")
+        if report.improvements:
+            lines.append("### 需要改进的地方")
+            for i, imp in enumerate(report.improvements, 1):
+                lines.append(f"{i}. {imp}")
+            lines.append("")
+        if report.corrected_scripts:
+            lines.append("### 改进话术对照")
+            for cs in report.corrected_scripts:
+                lines.append(f"- **原话**：{cs.get('original', '')}")
+                lines.append(f"  **改为**：{cs.get('corrected', '')}")
+                lines.append(f"  **原因**：{cs.get('reason', '')}\n")
+        if report.next_steps:
+            lines.append("### 下一步行动建议")
+            for i, ns in enumerate(report.next_steps, 1):
+                lines.append(f"{i}. {ns}")
+        return "\n".join(lines)
+
+    def _load_report_context(report_choice):
+        """根据选择加载汇报上下文（report + 原始对话内容）。"""
+        from storage.report_store import ReportStore
+        from storage.knowledge_store import KnowledgeStore
+        if not report_choice:
+            return None
+        rstore = ReportStore()
+        reports = rstore.list_all()
+        parts = report_choice.split(" | ")
+        if len(parts) < 2:
+            return None
+        target_title = parts[1]
+        report = next((r for r in reports if r.source_title == target_title), None)
+        if not report:
+            return None
+        # 从知识库获取原始对话内容
+        knowledge_store = KnowledgeStore()
+        original_content = ""
+        for entry in knowledge_store.list_by_category("customer_doc"):
+            if entry.source_file == report.source_file or entry.title == report.source_title:
+                original_content = entry.content[:4000]
+                break
+        return {"report": report, "original_content": original_content}
+
+    def view_report_and_prepare_chat(report_choice):
+        """查看汇报内容，同时加载聊天上下文和已有聊天记录，并生成分享勾选项。"""
+        if not report_choice:
+            return "暂无汇报", None, [], gr.update(choices=[], value=[])
+        context = _load_report_context(report_choice)
+        if not context:
+            return "未找到汇报", None, [], gr.update(choices=[], value=[])
+        report = context["report"]
+        # 加载已保存的聊天记录，兼容Gradio内部格式
+        saved_history = []
+        for msg in (report.chat_history or []):
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            # Gradio可能把content存为[{"text": ..., "type": "text"}]格式
+            if isinstance(content, list):
+                text_parts = [p.get("text", "") for p in content if isinstance(p, dict)]
+                content = "".join(text_parts)
+            if role and content:
+                saved_history.append({"role": role, "content": content})
+
+        # Build share checkboxes: report sections + chat messages
+        section_choices = []
+        section_defaults = []
+        if report.summary:
+            section_choices.append("整体评价")
+            section_defaults.append("整体评价")
+        if report.highlights:
+            section_choices.append("做得好的地方")
+            section_defaults.append("做得好的地方")
+        if report.improvements:
+            section_choices.append("需要改进的地方")
+            section_defaults.append("需要改进的地方")
+        if report.corrected_scripts:
+            section_choices.append("改进话术对照")
+            section_defaults.append("改进话术对照")
+        if report.next_steps:
+            section_choices.append("下一步行动建议")
+            section_defaults.append("下一步行动建议")
+        for i, msg in enumerate(saved_history):
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            label = "销售大师" if role == "assistant" else "我"
+            preview = content[:30].replace("\n", " ")
+            if len(content) > 30:
+                preview += "..."
+            section_choices.append(f"💬 {label}：{preview}")
+            section_defaults.append(f"💬 {label}：{preview}")
+
+        return (
+            _format_report(report), context, saved_history,
+            gr.update(choices=section_choices, value=section_defaults),
+        )
+
+    def _build_chat_system_prompt(report, original_content):
+        """构建汇报问答的系统提示词，压缩原始对话到3000字。"""
+        from prompts.report_chat import REPORT_CHAT_SYSTEM_PROMPT
+        highlights_text = "\n".join(f"- {h}" for h in report.highlights) if report.highlights else "无"
+        improvements_text = "\n".join(f"- {imp}" for imp in report.improvements) if report.improvements else "无"
+        corrected_text = ""
+        if report.corrected_scripts:
+            for cs in report.corrected_scripts:
+                corrected_text += f"- 原话：{cs.get('original', '')}\n  改为：{cs.get('corrected', '')}\n  原因：{cs.get('reason', '')}\n"
+        else:
+            corrected_text = "无"
+        next_steps_text = "\n".join(f"- {ns}" for ns in report.next_steps) if report.next_steps else "无"
+
+        trimmed_content = (original_content or "（未找到原始对话记录）")[:3000]
+
+        return REPORT_CHAT_SYSTEM_PROMPT.format(
+            sales_name=report.sales_name,
+            source_title=report.source_title,
+            summary=report.summary,
+            highlights=highlights_text,
+            improvements=improvements_text,
+            corrected_scripts=corrected_text,
+            next_steps=next_steps_text,
+            conversation_content=trimmed_content,
+        )
+
+    def chat_with_report(message, history, context):
+        """基于汇报上下文的流式问答对话，自动保存聊天记录。"""
+        from core.llm_client import get_client
+        if not context:
+            yield "", history
+            return
+        if not message or not message.strip():
+            yield "", history
+            return
+
+        report = context["report"]
+        original_content = context["original_content"]
+        system_prompt = _build_chat_system_prompt(report, original_content)
+
+        # 从已有聊天历史中提取LLM对话格式
+        chat_messages = []
+        for msg in history:
+            content = msg.get("content", "") if isinstance(msg, dict) else msg["content"]
+            # 兼容Gradio内部格式
+            if isinstance(content, list):
+                content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+            chat_messages.append({"role": msg.get("role", msg["role"]), "content": content})
+        chat_messages.append({"role": "user", "content": message.strip()})
+
+        # 加入用户消息
+        history.append({"role": "user", "content": message.strip()})
+        history.append({"role": "assistant", "content": ""})
+        yield "", history
+
+        try:
+            client = get_client()
+            full_reply = ""
+            for chunk in client.chat_stream(
+                messages=chat_messages,
+                system_prompt=system_prompt,
+                temperature=config.EVALUATION_TEMP,
+                max_tokens=1500,
+            ):
+                full_reply += chunk
+                history[-1] = {"role": "assistant", "content": full_reply}
+                yield "", history
+
+            # 流式结束后保存聊天记录
+            from storage.report_store import ReportStore
+            rstore = ReportStore()
+            rstore.save_chat_history(report.id, list(history))
+        except Exception as e:
+            err_msg = str(e)
+            if "500" in err_msg or "allocate" in err_msg or "CUDA" in err_msg:
+                friendly = "模型加载失败（GPU显存不足），请重启电脑后重试。"
+            elif "timed out" in err_msg.lower() or "timeout" in err_msg.lower():
+                friendly = "模型响应超时，请稍后重试或缩短提问。"
+            else:
+                friendly = f"回答失败：{err_msg}"
+            history[-1] = {"role": "assistant", "content": friendly}
+            yield "", history
+
+    def _build_selected_md(context, chat_history, selected_items):
+        """根据勾选项构建 Markdown 文本。"""
+        if not context or not selected_items:
+            return ""
+        report = context["report"]
+
+        # Separate section selections from chat message selections
+        section_keys = {"整体评价", "做得好的地方", "需要改进的地方", "改进话术对照", "下一步行动建议"}
+        selected_sections = [s for s in selected_items if s in section_keys]
+        # Chat items start with 💬
+        chat_indices = []
+        for s in selected_items:
+            if s.startswith("💬"):
+                # Find the index of this chat message by matching content
+                label_part = s.split("：", 1)[0].replace("💬 ", "")  # "销售大师" or "我"
+                preview_part = s.split("：", 1)[1] if "：" in s else ""
+                for i, msg in enumerate(chat_history):
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    # Handle Gradio internal format where content may be a list
+                    if isinstance(content, list):
+                        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+                    if not isinstance(content, str):
+                        content = str(content)
+                    msg_label = "销售大师" if role == "assistant" else "我"
+                    if msg_label == label_part and content[:30].replace("\n", " ") in preview_part:
+                        if i not in chat_indices:
+                            chat_indices.append(i)
+                        break
+
+        # Build report markdown with selected sections only
+        lines = [f"# {report.source_title}\n"]
+        lines.append(f"**销售**：{report.sales_name}  |  **日期**：{report.created_at[:10]}\n")
+
+        if "整体评价" in selected_sections and report.summary:
+            lines.append(f"## 整体评价\n{report.summary}\n")
+        if "做得好的地方" in selected_sections and report.highlights:
+            lines.append("## 做得好的地方")
+            for i, h in enumerate(report.highlights, 1):
+                lines.append(f"{i}. {h}")
+            lines.append("")
+        if "需要改进的地方" in selected_sections and report.improvements:
+            lines.append("## 需要改进的地方")
+            for i, imp in enumerate(report.improvements, 1):
+                lines.append(f"{i}. {imp}")
+            lines.append("")
+        if "改进话术对照" in selected_sections and report.corrected_scripts:
+            lines.append("## 改进话术对照")
+            for cs in report.corrected_scripts:
+                lines.append(f"- **原话**：{cs.get('original', '')}")
+                lines.append(f"  **改为**：{cs.get('corrected', '')}")
+                lines.append(f"  **原因**：{cs.get('reason', '')}\n")
+        if "下一步行动建议" in selected_sections and report.next_steps:
+            lines.append("## 下一步行动建议")
+            for i, ns in enumerate(report.next_steps, 1):
+                lines.append(f"{i}. {ns}")
+            lines.append("")
+
+        # Build selected chat messages
+        if chat_indices:
+            lines.append("---\n## 话术讨论记录\n")
+            for idx in sorted(chat_indices):
+                if idx < len(chat_history):
+                    msg = chat_history[idx]
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+                    if not isinstance(content, str):
+                        content = str(content)
+                    if not content:
+                        continue
+                    label = "销售大师" if role == "assistant" else "我"
+                    lines.append(f"**{label}**：{content}\n")
 
         return "\n".join(lines)
 
-    def get_style_names():
-        profiles = store.list_all()
-        return [p.name for p in profiles]
+    def share_copy_text(context, chat_history, selected_items):
+        if not context:
+            return "请先查看汇报"
+        if not selected_items:
+            return "请勾选要分享的内容"
+        md = _build_selected_md(context, chat_history, selected_items)
+        return md
 
-    # 当前模式标签
+    def share_export_docx(context, chat_history, selected_items):
+        from utils.share import export_as_docx
+        if not context or not selected_items:
+            return None
+        report = context["report"]
+        md = _build_selected_md(context, chat_history, selected_items)
+        if not md.strip():
+            return None
+        path = export_as_docx(md, title=f"面聊汇报_{report.sales_name}")
+        return path
+
+    def share_export_image(context, chat_history, selected_items):
+        from utils.share import generate_image
+        if not context or not selected_items:
+            return None
+        report = context["report"]
+        md = _build_selected_md(context, chat_history, selected_items)
+        if not md.strip():
+            return None
+        path = generate_image(md, title=f"面聊汇报 · {report.sales_name}")
+        return path
+
+    def share_generate_link(context, chat_history, selected_items):
+        from utils.share import generate_share_link
+        if not context:
+            return "请先查看汇报"
+        if not selected_items:
+            return "请勾选要分享的内容"
+        report = context["report"]
+        md = _build_selected_md(context, chat_history, selected_items)
+        url = generate_share_link(md, title=f"面聊汇报 · {report.sales_name}")
+        return url
+
     provider_info = (
         "**本地模型模式**：数据不出本机，零出网"
         if config.LLM_PROVIDER == "ollama"
         else "**云端API模式**：发送前自动脱敏"
     )
 
-    with gr.Blocks() as tab:
-        gr.Markdown("## 风格管理")
-        gr.Markdown(f"上传销售对话文件，AI将自动提取销售风格特征。最多支持4种风格。\n\n{provider_info}")
+    gr.Markdown("## 风格管理")
+    gr.Markdown(f"上传销售对话文件，AI将自动提取销售风格特征。最多支持4种风格。\n\n{provider_info}")
 
-        with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### 上传与提取")
-                file_input = gr.File(label="上传销售对话文件", file_types=[".txt", ".csv", ".json"])
-                style_name_input = gr.Textbox(label="风格名称（可选，留空自动生成）", placeholder="如：顾问式")
+    with gr.Row():
+        with gr.Column(scale=1):
+            gr.Markdown("### 上传与提取")
+            file_input = gr.File(label="上传销售对话文件", file_types=[".txt", ".csv", ".json", ".docx", ".doc", ".pdf", ".pptx", ".ppt"])
+            style_name_input = gr.Textbox(label="风格名称（可选，留空自动生成）", placeholder="如：顾问式")
+            with gr.Row():
+                preview_btn = gr.Button("预览脱敏")
+                extract_btn = gr.Button("提取风格", variant="primary")
+            import_kb_btn = gr.Button("从知识库导入", variant="secondary")
+            import_kb_result = gr.Textbox(label="导入结果", lines=5, interactive=False)
+            preview_result = gr.Textbox(label="脱敏预览", lines=6, interactive=False)
+            extract_result = gr.Textbox(label="提取结果", lines=3, interactive=False)
+            gr.Markdown("### 支持的文件格式")
+            gr.Markdown("- **TXT**：每行以\"销售：\"或\"客户：\"开头\n- **CSV**：包含 speaker 和 content 列\n- **JSON**：数组格式，含 role 和 content 字段\n- **Word**：.docx/.doc 对话记录或话术文档\n- **PDF**：对话记录或品牌资料\n- **PPT**：.pptx/.ppt 培训课件或方案展示")
 
-                with gr.Row():
-                    preview_btn = gr.Button("预览脱敏")
-                    extract_btn = gr.Button("提取风格", variant="primary")
+        with gr.Column(scale=1):
+            gr.Markdown("### 我的风格档案")
+            styles_display = gr.Markdown(_refresh_styles())
 
-                preview_result = gr.Textbox(label="脱敏预览", lines=6, interactive=False, visible=True)
-                extract_result = gr.Textbox(label="提取结果", lines=3, interactive=False)
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### 风格对比")
+            with gr.Row():
+                style_a = gr.Dropdown(label="风格A", choices=get_style_names(), scale=1)
+                style_b = gr.Dropdown(label="风格B", choices=get_style_names(), scale=1)
+            compare_btn = gr.Button("对比分析")
+            compare_result = gr.Markdown()
 
-                gr.Markdown("### 支持的文件格式")
-                gr.Markdown("""
-- **TXT**：每行以"销售："或"客户："开头
-- **CSV**：包含 speaker 和 content 列
-- **JSON**：数组格式，含 role 和 content 字段
-""")
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### 面聊汇报")
+            from storage.report_store import ReportStore
+            report_store_init = ReportStore()
+            report_choices = [
+                f"{r.sales_name} | {r.source_title} | {r.created_at[:10]}"
+                for r in report_store_init.list_all()
+            ]
+            report_dropdown = gr.Dropdown(
+                choices=report_choices,
+                value=report_choices[0] if report_choices else None,
+                label="选择汇报",
+            )
+            view_report_btn = gr.Button("查看汇报", variant="primary")
+            report_display = gr.Markdown()
+            report_context = gr.State(None)
 
-            with gr.Column(scale=1):
-                gr.Markdown("### 我的风格档案")
-                styles_display = gr.Markdown(_refresh_styles())
+            gr.Markdown("### 分享汇报")
+            share_select = gr.CheckboxGroup(label="选择要分享的内容", choices=[], value=[])
+            with gr.Row():
+                share_copy_btn = gr.Button("复制文本", scale=1)
+                share_docx_btn = gr.Button("导出Word", scale=1)
+                share_image_btn = gr.Button("生成图片", scale=1)
+                share_link_btn = gr.Button("生成链接", scale=1)
+            share_text_output = gr.Textbox(label="复制内容 / 链接", visible=True, interactive=False, lines=3)
+            share_file_output = gr.File(label="下载文件", visible=True)
 
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("### 风格对比")
-                with gr.Row():
-                    style_a = gr.Dropdown(label="风格A", choices=get_style_names(), scale=1)
-                    style_b = gr.Dropdown(label="风格B", choices=get_style_names(), scale=1)
-                compare_btn = gr.Button("对比分析")
-                compare_result = gr.Markdown()
+            gr.Markdown("### 与销售大师讨论")
+            gr.Markdown("选择汇报后，可以就这次面聊向AI教练提问，获取具体的跟进建议和话术优化。")
+            report_chatbot = gr.Chatbot(height=350, label="面聊复盘对话")
+            report_chat_input = gr.Textbox(
+                placeholder="如：下一步怎么跟进这个客户？这个异议该怎么回应？",
+                label="提问",
+            )
 
-        # Event handlers
-        preview_btn.click(
-            fn=preview_before_extract,
-            inputs=[file_input],
-            outputs=[preview_result, extract_result],
-        )
-
-        extract_btn.click(
-            fn=upload_and_extract,
-            inputs=[file_input, style_name_input],
-            outputs=[extract_result, styles_display],
-        )
-
-        compare_btn.click(
-            fn=compare_styles,
-            inputs=[style_a, style_b],
-            outputs=[compare_result],
-        )
-
-        # Refresh dropdowns on load
-        tab.load(fn=lambda: (gr.update(choices=get_style_names()), gr.update(choices=get_style_names())),
-                 outputs=[style_a, style_b])
-
-    return tab
+    preview_btn.click(fn=preview_before_extract, inputs=[file_input], outputs=[preview_result, extract_result])
+    extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input], outputs=[extract_result, styles_display])
+    import_kb_btn.click(fn=import_from_knowledge_base, inputs=[], outputs=[import_kb_result, styles_display, report_dropdown])
+    compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
+    view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown], outputs=[report_display, report_context, report_chatbot, share_select])
+    report_chat_input.submit(fn=chat_with_report, inputs=[report_chat_input, report_chatbot, report_context], outputs=[report_chat_input, report_chatbot])
+    share_copy_btn.click(fn=share_copy_text, inputs=[report_context, report_chatbot, share_select], outputs=[share_text_output])
+    share_docx_btn.click(fn=share_export_docx, inputs=[report_context, report_chatbot, share_select], outputs=[share_file_output])
+    share_image_btn.click(fn=share_export_image, inputs=[report_context, report_chatbot, share_select], outputs=[share_file_output])
+    share_link_btn.click(fn=share_generate_link, inputs=[report_context, report_chatbot, share_select], outputs=[share_text_output])

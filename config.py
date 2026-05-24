@@ -26,6 +26,9 @@ DESENSITIZE_PREVIEW = True  # 脱敏后预览确认
 MAX_STYLE_SLOTS = 4
 MAX_CHUNK_TOKENS = 8000
 
+# Sales Users (销售名单，用于多用户登录)
+SALES_USERS = os.getenv("SALES_USERS", "免免,CC,茉莉,丸子").split(",")
+
 # Session Configuration
 MAX_TURNS_PER_SESSION = 30
 PHASE_DETECTION_INTERVAL = 3
@@ -42,13 +45,26 @@ EVAL_WEIGHTS = {
     "收尾技巧": 1.0,
 }
 
+# File Upload Configuration
+MAX_FILE_SIZE_MB = 25
+OCR_MODE = os.getenv("OCR_MODE", "ollama_vision")  # "ollama_vision" or "tesseract"
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "minicpm-v")
+SUPPORTED_FILE_EXTENSIONS = {
+    "docx", "doc", "pdf", "xlsx", "xls",
+    "pptx", "ppt", "txt", "csv", "json",
+    "jpg", "jpeg", "png",
+}
+
 # Data Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 STYLES_DIR = os.path.join(DATA_DIR, "styles")
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
 EVALUATIONS_DIR = os.path.join(DATA_DIR, "evaluations")
+REPORTS_DIR = os.path.join(DATA_DIR, "reports")
+KNOWLEDGE_DIR = os.path.join(DATA_DIR, "knowledge")
+FILE_DOWNLOAD_DIR = os.path.join(DATA_DIR, "downloads")
 
 # Ensure data directories exist
-for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR]:
+for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR]:
     os.makedirs(d, exist_ok=True)

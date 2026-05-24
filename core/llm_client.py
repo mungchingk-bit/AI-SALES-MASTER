@@ -29,6 +29,17 @@ class BaseLLMClient(ABC):
     ) -> Iterator[str]:
         ...
 
+    @abstractmethod
+    def chat_with_image(
+        self,
+        messages: list[dict],
+        image_b64: str,
+        system_prompt: str = "",
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> str:
+        ...
+
 
 class OllamaClient(BaseLLMClient):
     """本地模型客户端，数据不出本机。"""
@@ -54,7 +65,7 @@ class OllamaClient(BaseLLMClient):
         response = requests.post(
             f"{self.base_url}/api/chat",
             json=payload,
-            timeout=120,
+            timeout=600,
         )
         response.raise_for_status()
         return response.json()["message"]["content"]
@@ -77,7 +88,7 @@ class OllamaClient(BaseLLMClient):
             f"{self.base_url}/api/chat",
             json=payload,
             stream=True,
-            timeout=120,
+            timeout=600,
         ) as response:
             response.raise_for_status()
             for line in response.iter_lines():
@@ -93,6 +104,34 @@ class OllamaClient(BaseLLMClient):
             result.append({"role": "system", "content": system_prompt})
         result.extend(messages)
         return result
+
+    def chat_with_image(
+        self,
+        messages: list[dict],
+        image_b64: str,
+        system_prompt: str = "",
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> str:
+        built = self._build_messages(messages, system_prompt)
+        if built and built[-1]["role"] == "user":
+            built[-1]["images"] = [image_b64]
+        else:
+            built.append({"role": "user", "content": "", "images": [image_b64]})
+        payload = {
+            "model": config.OLLAMA_VISION_MODEL,
+            "messages": built,
+            "temperature": temperature,
+            "stream": False,
+            "options": {"num_predict": max_tokens},
+        }
+        response = requests.post(
+            f"{self.base_url}/api/chat",
+            json=payload,
+            timeout=120,
+        )
+        response.raise_for_status()
+        return response.json()["message"]["content"]
 
 
 class ClaudeClient(BaseLLMClient):
@@ -162,6 +201,43 @@ class ClaudeClient(BaseLLMClient):
 
         clean_system = desensitize_text(system_prompt)
         return clean_messages, clean_system
+
+    def chat_with_image(
+        self,
+        messages: list[dict],
+        image_b64: str,
+        system_prompt: str = "",
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> str:
+        built = list(messages)
+        image_content = {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64},
+        }
+        if built and built[-1]["role"] == "user":
+            original_text = built[-1]["content"]
+            built[-1] = {
+                "role": "user",
+                "content": [
+                    image_content,
+                    {"type": "text", "text": original_text},
+                ],
+            }
+        else:
+            built.append({
+                "role": "user",
+                "content": [image_content, {"type": "text", "text": ""}],
+            })
+        messages, system_prompt = self._desensitize(built, system_prompt)
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system_prompt,
+            messages=messages,
+        )
+        return response.content[0].text
 
 
 # Global client instance

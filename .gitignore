@@ -10,10 +10,18 @@ build/
 .env
 
 # 运行时数据（含销售对话、客户信息等敏感数据，不上传）
-data/styles/
-data/sessions/
-data/evaluations/
-data/knowledge/
+data/
+
+# Gradio
+.gradio/
+
+# 日志
+*.log
+gradio_output.log
+startup_debug.log
+startup_debug_full.log
+stderr.log
+stdout.log
 
 # IDE
 .vscode/
@@ -30,3 +38,9 @@ desktop.ini
 ~$*
 *.tmp
 debug.log
+
+# 测试脚本
+test_bot.py
+test_gradio.py
+test_simple.py
+debug_launch.py

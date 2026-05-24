@@ -39,6 +39,11 @@ class KnowledgeStore:
         os.makedirs(self.knowledge_dir, exist_ok=True)
 
     def save(self, entry: KnowledgeEntry) -> str:
+        # Deduplicate by title + category
+        for existing in self.list_by_category(entry.category):
+            if existing.title == entry.title:
+                self.delete(existing.id)
+                break
         path = os.path.join(self.knowledge_dir, f"{entry.id}.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(entry.to_dict(), f, ensure_ascii=False, indent=2)
@@ -80,8 +85,15 @@ class KnowledgeStore:
             return True
         return False
 
-    def build_context(self, category: str | None = None) -> str:
-        """Build a context string from knowledge entries for prompt injection."""
+    def build_context(self, category: str | None = None, max_chars: int = 0) -> str:
+        """Build a context string from knowledge entries for prompt injection.
+
+        Args:
+            category: Filter by category, or None for all.
+            max_chars: If > 0, truncate total output to this many chars.
+                       Prioritizes newer entries and ensures all entries
+                       get at least a summary included.
+        """
         if category:
             entries = self.list_by_category(category)
         else:
@@ -90,7 +102,40 @@ class KnowledgeStore:
         if not entries:
             return ""
 
+        if max_chars <= 0:
+            parts = []
+            for entry in entries:
+                parts.append(f"## {entry.title}\n{entry.content}")
+            return "\n\n".join(parts)
+
+        # Smart truncation: try to include all entries proportionally
+        separator_len = 4  # "\n\n" between entries
+        header_overhead = 50  # safety margin for "## title\n"
+        available = max_chars
+
+        # First pass: calculate total raw length
+        raw_parts = [(f"## {entry.title}\n{entry.content}", entry) for entry in entries]
+        total_raw = sum(len(p[0]) for p in raw_parts)
+
+        if total_raw <= available:
+            return "\n\n".join(p[0] for p in raw_parts)
+
+        # Second pass: allocate space proportionally, ensure each entry
+        # gets at least 100 chars (title + beginning of content)
+        min_per_entry = 100
+        n = len(entries)
+        budget_per = max(min_per_entry, (available - (n - 1) * separator_len) // n)
+
         parts = []
-        for entry in entries:
-            parts.append(f"## {entry.title}\n{entry.content}")
-        return "\n\n".join(parts)
+        for raw, entry in raw_parts:
+            alloc = min(len(raw), budget_per)
+            if alloc < len(raw):
+                truncated = raw[:alloc] + "\n...(已压缩)"
+            else:
+                truncated = raw
+            parts.append(truncated)
+
+        result = "\n\n".join(parts)
+        if len(result) > max_chars:
+            result = result[:max_chars] + "\n...(已截断)"
+        return result

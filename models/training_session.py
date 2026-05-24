@@ -14,6 +14,7 @@ class TrainingSession:
     phases: list = field(default_factory=list)
     receptivity_history: list = field(default_factory=list)
     status: str = "active"  # "active" | "completed" | "abandoned"
+    user: str = ""  # 销售姓名，用于多用户隔离
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     ended_at: str | None = None
@@ -36,6 +37,7 @@ class TrainingSession:
             "phases": self.phases,
             "receptivity_history": self.receptivity_history,
             "status": self.status,
+            "user": self.user,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "evaluation_id": self.evaluation_id,
@@ -51,6 +53,7 @@ class TrainingSession:
             phases=data.get("phases", []),
             receptivity_history=data.get("receptivity_history", []),
             status=data.get("status", "active"),
+            user=data.get("user", ""),
             started_at=data.get("started_at", datetime.now().isoformat()),
             ended_at=data.get("ended_at"),
             evaluation_id=data.get("evaluation_id"),

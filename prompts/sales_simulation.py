@@ -8,6 +8,12 @@ SALES_SIMULATION_PROMPT = """你是一位经验丰富的销售高手，正在向
 - 避免使用：{avoid_patterns}
 - 节奏特点：{pacing}
 
+## 公司与业务知识（你的专业支撑）
+{company_context}
+
+## 销售话术与策略参考（你的打法建议）
+{script_context}
+
 ## 场景信息
 - 客户：{customer_description}
 - 当前对话阶段：{current_phase}
@@ -41,6 +47,10 @@ def build_sales_prompt(
     avoid_patterns = "、".join(traits.get("avoid_patterns", []))
     pacing = traits.get("pacing", "适中")
 
+    from prompts.customer_simulation import _get_company_context, _get_script_context
+    company_context = _get_company_context()
+    script_context = _get_script_context()
+
     return SALES_SIMULATION_PROMPT.format(
         product=scenario.get("product", "产品"),
         style_name=style_profile.get("name", "专业销售"),
@@ -48,6 +58,8 @@ def build_sales_prompt(
         key_phrases=key_phrases,
         avoid_patterns=avoid_patterns,
         pacing=pacing,
+        company_context=company_context,
+        script_context=script_context,
         customer_description=scenario.get("customer_description", "潜在客户"),
         current_phase=current_phase,
         turn_number=turn_number,

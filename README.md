@@ -42,11 +42,19 @@ python scripts/import_knowledge.py
 
 ### 5. 启动
 
+#### 方式 A：Web 界面 (推荐)
 ```bash
 python app.py
 ```
-
 浏览器自动打开 `http://localhost:7860`
+
+#### 方式 B：Discord 机器人
+1. 在 `.env` 中填入 `DISCORD_BOT_TOKEN` 和 `DISCORD_CHANNEL_ID`
+2. 运行：
+```bash
+python discord_bot.py
+```
+在 Discord 频道输入 `!start` 即可开始对练。
 
 ## 使用流程
 

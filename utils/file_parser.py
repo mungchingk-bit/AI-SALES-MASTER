@@ -1,5 +1,6 @@
 import csv
 import json
+import logging
 import os
 import re
 
@@ -7,7 +8,7 @@ from models.chat_message import ChatMessage
 
 
 def parse_file(file_path: str) -> list[ChatMessage]:
-    """Parse a sales chat file into a list of ChatMessage. Supports txt/csv/json/docx."""
+    """Parse a sales chat file into a list of ChatMessage. Supports txt/csv/json/docx/pdf/pptx."""
     ext = file_path.lower().split(".")[-1]
 
     if ext == "json":
@@ -18,6 +19,8 @@ def parse_file(file_path: str) -> list[ChatMessage]:
         return _parse_docx(file_path)
     elif ext == "pdf":
         return _parse_pdf(file_path)
+    elif ext in ("pptx", "ppt"):
+        return _parse_pptx(file_path)
     else:
         return _parse_txt(file_path)
 
@@ -30,6 +33,12 @@ def extract_text(file_path: str) -> str:
         return _extract_docx_text(file_path)
     elif ext == "pdf":
         return _extract_pdf_text(file_path)
+    elif ext in ("pptx", "ppt"):
+        return _extract_pptx_text(file_path)
+    elif ext in ("xlsx", "xls"):
+        return _extract_xlsx_text(file_path)
+    elif ext in ("jpg", "jpeg", "png"):
+        return _extract_image_text(file_path)
     else:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
@@ -111,6 +120,12 @@ def _parse_docx(file_path: str) -> list[ChatMessage]:
 def _parse_pdf(file_path: str) -> list[ChatMessage]:
     """Parse PDF as conversation."""
     text = _extract_pdf_text(file_path)
+    return _parse_text_as_conversation(text)
+
+
+def _parse_pptx(file_path: str) -> list[ChatMessage]:
+    """Parse PPT as conversation."""
+    text = _extract_pptx_text(file_path)
     return _parse_text_as_conversation(text)
 
 
@@ -215,12 +230,32 @@ def _extract_pdf_text(file_path: str) -> str:
             text_parts.append(page.get_text())
         return "\n".join(text_parts)
     except ImportError:
-        # Fallback: try pdfminer
         try:
             from pdfminer.high_level import extract_text
             return extract_text(file_path)
         except ImportError:
             return f"[无法解析PDF，请安装PyMuPDF: pip install PyMuPDF] 文件：{os.path.basename(file_path)}"
+
+
+def _extract_pptx_text(file_path: str) -> str:
+    """Extract text from a PPT/PPTX file."""
+    try:
+        from pptx import Presentation
+        prs = Presentation(file_path)
+        text_parts = []
+        for i, slide in enumerate(prs.slides, 1):
+            slide_texts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            slide_texts.append(text)
+            if slide_texts:
+                text_parts.append(f"--- 第{i}页 ---\n" + "\n".join(slide_texts))
+        return "\n\n".join(text_parts)
+    except ImportError:
+        return f"[无法解析PPT，请安装python-pptx: pip install python-pptx] 文件：{os.path.basename(file_path)}"
 
 
 def _detect_speaker(line: str) -> str | None:
@@ -254,3 +289,86 @@ def _map_role(speaker: str) -> str:
     elif s in customer_ids:
         return "assistant"
     return "user"
+
+
+def _extract_xlsx_text(file_path: str) -> str:
+    """Extract text from an XLSX/XLS file."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(file_path, read_only=True, data_only=True)
+        text_parts = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            sheet_lines = [f"--- Sheet: {sheet_name} ---"]
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(cell) if cell is not None else "" for cell in row]
+                line = " | ".join(cells)
+                if line.strip(" |"):
+                    sheet_lines.append(line)
+            text_parts.append("\n".join(sheet_lines))
+        wb.close()
+        return "\n\n".join(text_parts)
+    except ImportError:
+        return f"[无法解析XLSX，请安装openpyxl: pip install openpyxl] 文件：{os.path.basename(file_path)}"
+
+
+def _extract_image_text(file_path: str) -> str:
+    """Extract text from an image file using OCR."""
+    import config
+    if config.OCR_MODE == "tesseract":
+        return _ocr_tesseract(file_path)
+    else:
+        return _ocr_ollama_vision(file_path)
+
+
+def _ocr_tesseract(file_path: str) -> str:
+    """Use pytesseract for OCR."""
+    try:
+        import pytesseract
+        from PIL import Image
+        img = Image.open(file_path)
+        text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+        return text.strip() if text.strip() else "[图片中未检测到文字]"
+    except ImportError:
+        return "[无法进行OCR，请安装pytesseract: pip install pytesseract，并安装Tesseract OCR]"
+    except Exception as e:
+        return f"[OCR处理失败: {str(e)}]"
+
+
+def _ocr_ollama_vision(file_path: str) -> str:
+    """Use Ollama vision model for OCR."""
+    import base64
+    import requests
+    import config
+
+    with open(file_path, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    ext = file_path.lower().split(".")[-1]
+    mime_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}
+    mime_type = mime_map.get(ext, "image/jpeg")
+
+    payload = {
+        "model": config.OLLAMA_VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": "请仔细识别并提取这张图片中的所有文字内容，按原排版输出。如果图片中没有文字，描述图片内容。",
+                "images": [image_b64],
+            }
+        ],
+        "stream": False,
+    }
+
+    try:
+        response = requests.post(
+            f"{config.OLLAMA_BASE_URL}/api/chat",
+            json=payload,
+            timeout=120,
+        )
+        response.raise_for_status()
+        result = response.json()["message"]["content"]
+        return result.strip() if result.strip() else "[图片中未检测到文字]"
+    except Exception as e:
+        logging.warning(f"Ollama vision OCR failed: {e}, falling back to tesseract")
+        return _ocr_tesseract(file_path)

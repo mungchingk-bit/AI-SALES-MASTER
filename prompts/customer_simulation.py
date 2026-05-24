@@ -14,6 +14,9 @@ CUSTOMER_SIMULATION_PROMPT = """你是一位真实的潜在客户。请严格按
 ## 行业背景信息
 {company_context}
 
+## 销售话术参考（了解销售可能使用的打法，以应对）
+{script_context}
+
 ## 隐藏设定（销售人员不可见）
 - 初始接受度：{receptivity_score}/10
 - 主要顾虑：{primary_objections}
@@ -107,6 +110,7 @@ def build_customer_prompt(scenario: dict) -> str:
 
     # Inject company context from knowledge base
     full_scenario.setdefault("company_context", _get_company_context())
+    full_scenario.setdefault("script_context", _get_script_context())
 
     return CUSTOMER_SIMULATION_PROMPT.format(**full_scenario)
 
@@ -116,13 +120,23 @@ def _get_company_context() -> str:
     try:
         from storage.knowledge_store import KnowledgeStore
         store = KnowledgeStore()
-        context = store.build_context("company_profile")
+        context = store.build_context("company_profile", max_chars=4000)
         if context:
-            # Truncate if too long
-            if len(context) > 3000:
-                context = context[:3000] + "\n...(内容过长已截断)"
             return context
     except Exception:
         pass
     return """这是一家深圳的高端婚礼策划公司，有16年经验，2000平米自有仓库，全科班设计团队。
 主品牌：克拉时刻（高端定制），子品牌：栀夏（小型精致）。金熊奖获奖团队。"""
+
+
+def _get_script_context() -> str:
+    """Load sales script context from knowledge base."""
+    try:
+        from storage.knowledge_store import KnowledgeStore
+        store = KnowledgeStore()
+        context = store.build_context("script_library", max_chars=4000)
+        if context:
+            return context
+    except Exception:
+        pass
+    return "暂无具体话术库资料。"

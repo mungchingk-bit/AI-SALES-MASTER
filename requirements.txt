@@ -6,3 +6,12 @@ matplotlib>=3.8.0
 numpy>=1.26.0
 python-docx>=1.1.0
 PyMuPDF>=1.24.0
+
+# File parsing
+openpyxl>=3.1.0
+python-pptx>=0.6.21
+pytesseract>=0.3.10
+Pillow>=10.0.0
+
+# Discord
+discord.py>=2.3.0
