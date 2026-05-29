@@ -18,6 +18,7 @@ class TrainingSession:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     ended_at: str | None = None
+    end_reason: str = ""  # "成功" | "离开" | "考虑" | "红线"
     evaluation_id: str | None = None
 
     def add_message(self, role: str, content: str, metadata: dict | None = None):
@@ -40,6 +41,7 @@ class TrainingSession:
             "user": self.user,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
+            "end_reason": self.end_reason,
             "evaluation_id": self.evaluation_id,
         }
 
@@ -56,6 +58,7 @@ class TrainingSession:
             user=data.get("user", ""),
             started_at=data.get("started_at", datetime.now().isoformat()),
             ended_at=data.get("ended_at"),
+            end_reason=data.get("end_reason", ""),
             evaluation_id=data.get("evaluation_id"),
         )
         session.conversation = [

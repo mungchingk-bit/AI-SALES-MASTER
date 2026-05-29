@@ -60,7 +60,7 @@ class TrainingManager:
 
         if session.mode == "customer":
             # AI plays customer
-            ai_response, receptivity = self.role_engine.generate_customer_response(
+            ai_response, receptivity, end_reason = self.role_engine.generate_customer_response(
                 conversation=session.conversation,
                 scenario=session.scenario,
             )
@@ -68,10 +68,39 @@ class TrainingManager:
             session.receptivity_history.append(receptivity)
             style_note = ""
 
-            # Check if customer walked away (receptivity = 0)
-            if receptivity <= 0:
+            # Check if customer ended conversation naturally
+            if end_reason:
                 session.status = "completed"
                 session.ended_at = datetime.now().isoformat()
+                session.end_reason = end_reason
+
+            # Check if customer walked away (receptivity = 0)
+            elif receptivity <= 0:
+                session.status = "completed"
+                session.ended_at = datetime.now().isoformat()
+                session.end_reason = "离开"
+
+            # Fallback: auto-end if too many rounds without natural close
+            # (glm-4-flash often forgets to add <end_conversation> tags)
+            elif len(session.conversation) >= 20 and not end_reason:
+                recep = session.receptivity_history
+                if len(recep) >= 2:
+                    latest = recep[-1]
+                    if latest >= 7:
+                        session.status = "completed"
+                        session.ended_at = datetime.now().isoformat()
+                        session.end_reason = "成功"
+                        ai_response += "\n\n——— 客户表示有意向，对话成功结束 ———"
+                    elif latest <= 3:
+                        session.status = "completed"
+                        session.ended_at = datetime.now().isoformat()
+                        session.end_reason = "离开"
+                        ai_response += "\n\n——— 客户失去兴趣离开了 ———"
+                    else:
+                        session.status = "completed"
+                        session.ended_at = datetime.now().isoformat()
+                        session.end_reason = "考虑"
+                        ai_response += "\n\n——— 客户表示需要再考虑 ———"
 
         else:
             # AI plays salesperson

@@ -1,17 +1,26 @@
 import os
 
-# LLM Provider: "ollama" (本地，数据不出本机) | "claude" (云端，需脱敏)
+# LLM Provider: "ollama" (本地) | "openai" (国内云端，自动脱敏) | "claude" (海外云端，自动脱敏)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 
 # Ollama Configuration (本地模型)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 
-# Claude Configuration (云端模型)
+# OpenAI-Compatible Configuration (国内云端模型)
+# DeepSeek: https://platform.deepseek.com
+# 通义千问: https://dashscope.aliyuncs.com/compatible-mode
+# 智谱GLM: https://open.bigmodel.cn
+# Kimi: https://api.moonshot.cn
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
+FAST_MODEL = os.getenv("FAST_MODEL", "")  # 快速模型用于训练对话，留空则用 OPENAI_MODEL
+
+# Claude Configuration (海外云端模型)
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
 # Temperature Settings
-CUSTOMER_TEMP = 0.9
+CUSTOMER_TEMP = 0.7
 SALES_TEMP = 0.7
 EXTRACTION_TEMP = 0.2
 EVALUATION_TEMP = 0.3

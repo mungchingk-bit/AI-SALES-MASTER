@@ -49,6 +49,7 @@ class Evaluator:
             system_prompt=prompt,
             temperature=config.EVALUATION_TEMP,
             max_tokens=config.MAX_TOKENS_EVALUATION,
+            model=config.FAST_MODEL or None,
         )
 
         # Parse response
@@ -92,6 +93,7 @@ class Evaluator:
                 system_prompt=prompt,
                 temperature=0.4,
                 max_tokens=3000,
+                model=config.FAST_MODEL or None,
             )
             return response.strip()
         except Exception:
@@ -106,6 +108,7 @@ class Evaluator:
                 system_prompt=prompt,
                 temperature=0.3,
                 max_tokens=2048,
+                model=config.FAST_MODEL or None,
             )
             result = self._parse_json_response(response)
             return result if result else {}

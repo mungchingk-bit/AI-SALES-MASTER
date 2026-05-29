@@ -1,9 +1,11 @@
 import os
+import asyncio
 import discord
 import logging
+from dotenv import load_dotenv
+load_dotenv()
 import config
 from discord.ext import commands
-from dotenv import load_dotenv
 from core.training_manager import TrainingManager
 from core.file_discussion_manager import FileDiscussionManager
 from prompts.customer_simulation import WEDDING_SCENARIOS
@@ -18,8 +20,6 @@ from utils.file_parser import extract_text
 from utils.text_utils import estimate_tokens, truncate_to_token_limit
 
 logging.basicConfig(level=logging.INFO)
-
-load_dotenv()
 
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 TARGET_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID")
@@ -40,6 +40,16 @@ doc_store = DocStore()
 report_store = ReportStore()
 knowledge_store = KnowledgeStore()
 active_sessions = {}
+
+_evaluator_instance = None
+
+
+def _get_evaluator():
+    global _evaluator_instance
+    if _evaluator_instance is None:
+        from core.evaluator import Evaluator
+        _evaluator_instance = Evaluator()
+    return _evaluator_instance
 
 # channel_id -> doc_number (当前讨论的文档编号)
 active_doc_sessions = {}
@@ -82,21 +92,23 @@ async def on_ready():
     logging.info(f"Bot online: {bot.user.name} (ID: {bot.user.id})")
     try:
         for guild in bot.guilds:
+            bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
             logging.info(f"Synced {len(synced)} slash commands to guild: {guild.name}")
     except Exception as e:
         logging.error(f"Failed to sync slash commands: {e}")
-    if TARGET_CHANNEL_ID:
-        channel = bot.get_channel(int(TARGET_CHANNEL_ID))
-        if channel:
-            await channel.send("✅ 销售大师 Bot 已上线！输入 `/` 查看所有命令。")
 
 
 # === 斜杠命令 ===
 
 @bot.tree.command(name="start", description="开始销售训练（AI当客户，你练销售）")
-@discord.app_commands.describe(style="选择销售风格（可选）", doc="文档编号，基于文档内容训练（可选）")
-async def slash_start(interaction: discord.Interaction, style: str = None, doc: int = None):
+@discord.app_commands.describe(difficulty="选择难度", doc="文档编号，基于文档内容训练（可选）")
+@discord.app_commands.choices(difficulty=[
+    discord.app_commands.Choice(name="简单", value="easy"),
+    discord.app_commands.Choice(name="中等", value="medium"),
+    discord.app_commands.Choice(name="困难", value="hard"),
+])
+async def slash_start(interaction: discord.Interaction, difficulty: str = None, doc: int = None):
     if not is_allowed_user(interaction.user.id):
         await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
         return
@@ -108,27 +120,22 @@ async def slash_start(interaction: discord.Interaction, style: str = None, doc: 
     if interaction.channel_id in active_report_sessions:
         del active_report_sessions[interaction.channel_id]
 
-    style_profile_id = None
-    style_display = "默认顾问式"
-
-    if style:
-        profiles = style_store.list_all()
-        for p in profiles:
-            if p.name == style or style in p.name:
-                style_profile_id = p.id
-                style_display = p.name
-                break
-        if not style_profile_id:
-            styles = get_style_choices()
-            if styles:
-                await interaction.response.send_message(f"❌ 未找到风格「{style}」。可选：{'、'.join(styles)}")
-            else:
-                await interaction.response.send_message(f"❌ 未找到风格「{style}」。暂无风格，用 `/start` 使用默认。")
-            return
-
-    scenario = WEDDING_SCENARIOS["酒店婚宴"]
+    scenario = dict(WEDDING_SCENARIOS["酒店婚宴"])
     scenario["product"] = "婚礼策划服务"
     scenario["industry"] = "婚庆"
+
+    # Parse difficulty (choices already return easy/medium/hard)
+    diff_key = difficulty if difficulty in ("easy", "medium", "hard") else "medium"
+    scenario["difficulty"] = diff_key
+
+    # Randomize customer details each session
+    import random as _rand
+    from prompts.customer_simulation import CUSTOMER_NAMES, WEDDING_DATES, BUDGETS, DECISION_AUTHORITIES, _pick_objections_for_difficulty
+    scenario["customer_name"] = _rand.choice(CUSTOMER_NAMES)
+    scenario["wedding_date"] = _rand.choice(WEDDING_DATES)
+    scenario["budget_situation"] = _rand.choice(BUDGETS)
+    scenario["decision_authority"] = _rand.choice(DECISION_AUTHORITIES)
+    scenario["primary_objections"] = "；".join(_pick_objections_for_difficulty(diff_key))
 
     # 如果指定了文档，把文档内容注入场景
     doc_info = ""
@@ -146,22 +153,30 @@ async def slash_start(interaction: discord.Interaction, style: str = None, doc: 
     session = manager.create_session(
         mode="customer",
         scenario=scenario,
-        style_profile_id=style_profile_id,
+        style_profile_id=None,
     )
+    session.user = interaction.user.display_name
+    manager.session_store.save(session)
     active_sessions[interaction.channel_id] = session.id
 
+    diff_labels = {"easy": "简单", "medium": "中等", "hard": "困难"}
     embed = discord.Embed(
         title="🚀 销售实战训练开始！",
-        description=f"**场景**：{scenario['wedding_type']}\n**客户设定**：{scenario['core_needs']}\n**销售风格**：{style_display}{doc_info}\n\nAI 扮演客户，请开始你的销售话术！",
+        description=f"**场景**：{scenario['wedding_type']}\n**难度**：{diff_labels[diff_key]}\n**客户设定**：{scenario['core_needs']}{doc_info}\n\n请主动打招呼开始对话！",
         color=discord.Color.blue()
     )
     await interaction.response.send_message(embed=embed)
-    await interaction.channel.send("👤 **客户（AI）**: 您好，我想咨询一下婚礼策划...")
+    await interaction.channel.send("——— ✅ 已添加好友 ———")
 
 
 @bot.tree.command(name="learn", description="学习模式（AI当销售，你当客户）")
-@discord.app_commands.describe(style="选择销售风格（可选）")
-async def slash_learn(interaction: discord.Interaction, style: str = None):
+@discord.app_commands.describe(style="选择销售风格（可选）", difficulty="选择难度")
+@discord.app_commands.choices(difficulty=[
+    discord.app_commands.Choice(name="简单", value="easy"),
+    discord.app_commands.Choice(name="中等", value="medium"),
+    discord.app_commands.Choice(name="困难", value="hard"),
+])
+async def slash_learn(interaction: discord.Interaction, style: str = None, difficulty: str = None):
     if not is_allowed_user(interaction.user.id):
         await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
         return
@@ -191,50 +206,318 @@ async def slash_learn(interaction: discord.Interaction, style: str = None):
                 await interaction.response.send_message(f"❌ 未找到风格「{style}」。用 `/learn` 使用默认。")
             return
 
-    scenario = WEDDING_SCENARIOS["酒店婚宴"]
+    scenario = dict(WEDDING_SCENARIOS["酒店婚宴"])
     scenario["product"] = "婚礼策划服务"
     scenario["industry"] = "婚庆"
+
+    # Parse difficulty (choices already return easy/medium/hard)
+    diff_key = difficulty if difficulty in ("easy", "medium", "hard") else "medium"
+    scenario["difficulty"] = diff_key
     scenario["customer_description"] = "正在筹备婚礼的备婚新人"
+
+    # Randomize customer details for learn mode too
+    import random as _rand2
+    from prompts.customer_simulation import CUSTOMER_NAMES, WEDDING_DATES, BUDGETS, DECISION_AUTHORITIES, _pick_objections_for_difficulty
+    scenario["customer_name"] = _rand2.choice(CUSTOMER_NAMES)
+    scenario["wedding_date"] = _rand2.choice(WEDDING_DATES)
+    scenario["budget_situation"] = _rand2.choice(BUDGETS)
+    scenario["decision_authority"] = _rand2.choice(DECISION_AUTHORITIES)
+    scenario["primary_objections"] = "；".join(_pick_objections_for_difficulty(diff_key))
 
     session = manager.create_session(
         mode="salesperson",
         scenario=scenario,
         style_profile_id=style_profile_id,
     )
+    session.user = interaction.user.display_name
+    manager.session_store.save(session)
     active_sessions[interaction.channel_id] = session.id
 
+    diff_labels = {"easy": "简单", "medium": "中等", "hard": "困难"}
     embed = discord.Embed(
         title="📚 学习模式开始！",
-        description=f"**场景**：{scenario['wedding_type']}\n**销售风格**：{style_display}\n\nAI 扮演销售，你扮演客户。先说一句话作为客户开场吧！",
+        description=f"**场景**：{scenario['wedding_type']}\n**难度**：{diff_labels[diff_key]}\n**销售风格**：{style_display}\n\nAI 扮演销售，你扮演客户。先说一句话作为客户开场吧！",
         color=discord.Color.purple()
     )
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="stop", description="结束当前训练")
+@bot.tree.command(name="stop", description="结束当前训练并生成评估报告")
 async def slash_stop(interaction: discord.Interaction):
     if not is_allowed_user(interaction.user.id):
         await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
         return
 
-    stopped = False
-    if interaction.channel_id in active_sessions:
-        del active_sessions[interaction.channel_id]
-        stopped = True
-    if interaction.channel_id in active_doc_sessions:
+    session_id = active_sessions.pop(interaction.channel_id, None)
+    doc_cleared = interaction.channel_id in active_doc_sessions
+    report_cleared = interaction.channel_id in active_report_sessions
+    if doc_cleared:
         del active_doc_sessions[interaction.channel_id]
-        stopped = True
-    if interaction.channel_id in active_report_sessions:
+    if report_cleared:
         del active_report_sessions[interaction.channel_id]
-        stopped = True
     if file_manager.has_session(interaction.channel_id):
         file_manager.end_session(interaction.channel_id)
-        stopped = True
 
-    if stopped:
-        await interaction.response.send_message("✅ 已结束。用 `/start` 或 `/learn` 开启新一轮。")
+    if session_id:
+        await interaction.response.send_message("⏳ 正在生成训练评估报告，请稍候...")
+        try:
+            session = await asyncio.to_thread(manager.end_session, session_id)
+            evaluator = _get_evaluator()
+
+            # Full report (includes summary internally)
+            try:
+                full_report = await asyncio.wait_for(
+                    asyncio.to_thread(evaluator.evaluate, session_id),
+                    timeout=60
+                )
+            except asyncio.TimeoutError:
+                logging.error(f"[stop] Evaluation timeout for session {session_id[:8]}")
+                full_report = None
+            except Exception:
+                full_report = None
+
+            # Fallback: summary only
+            summary = full_report.conversation_summary if full_report else None
+            if not summary:
+                try:
+                    summary = await asyncio.wait_for(
+                        asyncio.to_thread(evaluator.generate_summary_only, session_id),
+                        timeout=15
+                    )
+                except Exception:
+                    summary = None
+
+            turn_count = len(session.conversation) // 2
+            receptivity = session.receptivity_history
+            recep_text = f"{receptivity[0]}→{receptivity[-1]}" if receptivity and len(receptivity) >= 2 else "-"
+
+            desc = f"**对话轮次**：{turn_count}轮\n**客户接受度**：{recep_text}\n\n"
+            if summary and len(summary) > 3800:
+                desc += summary[:3800] + "\n..."
+            else:
+                desc += summary or ""
+
+            embed = discord.Embed(
+                title="📋 训练评估报告",
+                description=desc[:4096],
+                color=discord.Color.gold()
+            )
+
+            if full_report and full_report.deal_progression:
+                dp = full_report.deal_progression
+                dp_text = ""
+                if dp.get("current_stage"):
+                    dp_text += f"**当前阶段**：{dp['current_stage']}\n"
+                if dp.get("risk_level"):
+                    dp_text += f"**风险等级**：{dp['risk_level']} — {dp.get('risk_reason', '')}\n"
+                if dp.get("next_steps"):
+                    dp_text += "\n**下一步**：\n"
+                    for step in dp["next_steps"][:3]:
+                        dp_text += f"{step.get('step', '?')}. {step.get('action', '')}\n"
+                        if step.get("script"):
+                            dp_text += f"   话术：{step['script'][:80]}\n"
+                if dp.get("win_strategy"):
+                    dp_text += f"\n**赢单策略**：{dp['win_strategy']}"
+                if dp_text:
+                    embed.add_field(name="签单路径", value=dp_text[:1024], inline=False)
+
+            if full_report and full_report.dimension_scores:
+                scores_text = ""
+                for dim, data in full_report.dimension_scores.items():
+                    score = data.get("score", 0) if isinstance(data, dict) else data
+                    bar = "█" * score + "░" * (10 - score)
+                    scores_text += f"{dim}：{bar} {score}/10\n"
+                if scores_text:
+                    embed.add_field(name="维度评分", value=scores_text[:1024], inline=False)
+
+            if full_report:
+                embed.set_footer(text="完整评估报告（含雷达图）请在网页版「评估报告」Tab查看")
+
+            await interaction.channel.send(embed=embed)
+        except Exception as e:
+            logging.error(f"Failed to generate evaluation: {e}")
+            await interaction.channel.send(f"✅ 训练已结束，但评估报告生成失败：{str(e)[:200]}")
     else:
-        await interaction.response.send_message("❌ 当前没有进行中的会话。")
+        cleared = []
+        if doc_cleared:
+            cleared.append("文档讨论")
+        if report_cleared:
+            cleared.append("报告讨论")
+        if cleared:
+            await interaction.response.send_message(f"✅ 已结束：{'、'.join(cleared)}")
+        else:
+            await interaction.response.send_message("❌ 当前没有进行中的会话。")
+
+
+@bot.tree.command(name="evaluate", description="查看训练评估报告")
+@discord.app_commands.describe(number="训练编号（用 /history 查看，留空则最近一次）")
+async def slash_evaluate(interaction: discord.Interaction, number: int = None):
+    if not is_allowed_user(interaction.user.id):
+        await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
+        return
+
+    sessions = _get_completed_sessions()
+    if not sessions:
+        await interaction.response.send_message("📭 暂无已完成的训练记录。先用 `/start` 开始一次训练。")
+        return
+
+    if number is not None:
+        total = len(sessions)
+        if number < 1 or number > total:
+            await interaction.response.send_message(f"❌ 编号 #{number} 不存在。用 `/history` 查看所有记录（共{total}条）。")
+            return
+        session = sessions[number - 1]
+    else:
+        session = sessions[-1]
+
+    # Auto-fix stale active sessions
+    if session.status == "active":
+        from storage.session_store import SessionStore
+        from datetime import datetime
+        session.status = "completed"
+        session.end_reason = session.end_reason or "考虑"
+        if not session.ended_at:
+            session.ended_at = datetime.now().isoformat()
+        SessionStore().save(session)
+
+    session_id = session.id
+    turn_count = len(session.conversation) // 2
+    status_label = {"completed": "已完成", "abandoned": "已放弃"}.get(session.status, session.status)
+    started = session.started_at[:10] if session.started_at else "?"
+
+    await interaction.response.send_message(f"⏳ 正在生成评估报告（{started} | {turn_count}轮 | {status_label}），请稍候...")
+
+    try:
+        evaluator = _get_evaluator()
+        logging.info(f"[evaluate] Starting for session {session_id[:8]}")
+
+        # Full report (includes summary + progression + dimensions)
+        try:
+            full_report = await asyncio.wait_for(
+                asyncio.to_thread(evaluator.evaluate, session_id),
+                timeout=60
+            )
+        except asyncio.TimeoutError:
+            logging.error(f"[evaluate] Timeout for session {session_id[:8]}")
+            full_report = None
+        except Exception as e:
+            logging.error(f"[evaluate] evaluate() error: {e}")
+            full_report = None
+
+        # Fallback: summary only if full report failed
+        summary = full_report.conversation_summary if full_report else None
+        if not summary:
+            try:
+                summary = await asyncio.wait_for(
+                    asyncio.to_thread(evaluator.generate_summary_only, session_id),
+                    timeout=15
+                )
+            except Exception:
+                summary = "总结生成失败，请稍后重试。"
+
+        recep = session.receptivity_history
+        recep_text = f"{recep[0]}→{recep[-1]}" if recep and len(recep) >= 2 else "-"
+
+        desc = f"**日期**：{started}\n**对话轮次**：{turn_count}轮\n**客户接受度**：{recep_text}\n**状态**：{status_label}\n\n"
+        if summary and len(summary) > 3500:
+            desc += summary[:3500] + "\n..."
+        else:
+            desc += summary or ""
+
+        embed = discord.Embed(title="📋 训练评估报告", description=desc[:4096], color=discord.Color.gold())
+
+        if full_report and full_report.deal_progression:
+            dp = full_report.deal_progression
+            dp_text = ""
+            if dp.get("current_stage"):
+                dp_text += f"**当前阶段**：{dp['current_stage']}\n"
+            if dp.get("risk_level"):
+                dp_text += f"**风险等级**：{dp['risk_level']} — {dp.get('risk_reason', '')}\n"
+            if dp.get("next_steps"):
+                dp_text += "\n**下一步**：\n"
+                for step in dp["next_steps"][:3]:
+                    dp_text += f"{step.get('step', '?')}. {step.get('action', '')}\n"
+                    if step.get("script"):
+                        dp_text += f"   话术：{step['script'][:80]}\n"
+            if dp.get("win_strategy"):
+                dp_text += f"\n**赢单策略**：{dp['win_strategy']}"
+            if dp_text:
+                embed.add_field(name="签单路径", value=dp_text[:1024], inline=False)
+
+        if full_report and full_report.dimension_scores:
+            scores_text = ""
+            for dim, data in full_report.dimension_scores.items():
+                score = data.get("score", 0) if isinstance(data, dict) else data
+                bar = "█" * score + "░" * (10 - score)
+                scores_text += f"{dim}：{bar} {score}/10\n"
+            if scores_text:
+                embed.add_field(name="维度评分", value=scores_text[:1024], inline=False)
+
+        if full_report:
+            embed.set_footer(text="完整评估报告（含雷达图）请在网页版「评估报告」Tab查看")
+
+        await interaction.channel.send(embed=embed)
+    except asyncio.TimeoutError:
+        logging.error(f"[evaluate] Overall timeout for session {session_id[:8]}")
+        await interaction.channel.send("⚠️ 评估报告生成超时，LLM可能暂时不可用。请稍后再试或查看网页版。")
+    except Exception as e:
+        logging.error(f"[evaluate] Unexpected error: {e}", exc_info=True)
+        await interaction.channel.send(f"⚠️ 评估报告生成失败：{str(e)[:200]}")
+
+
+@bot.tree.command(name="history", description="查看过往训练记录")
+@discord.app_commands.describe(page="页码（每页5条）")
+async def slash_history(interaction: discord.Interaction, page: int = 1):
+    if not is_allowed_user(interaction.user.id):
+        await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
+        return
+
+    from storage.session_store import SessionStore
+    sess_store = SessionStore()
+    sessions = sess_store.list_all()
+    completed = [s for s in sessions if (
+        (s.status in ("completed", "abandoned") and len(s.conversation) >= 2) or
+        (s.status == "active" and len(s.conversation) >= 4)
+    )]
+    if not completed:
+        await interaction.response.send_message("📭 暂无训练记录。先用 `/start` 开始一次训练。")
+        return
+
+    per_page = 5
+    total = len(completed)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    # Show newest first, paginate
+    reversed_list = list(reversed(completed))
+    start_idx = (page - 1) * per_page
+    page_items = reversed_list[start_idx:start_idx + per_page]
+
+    lines = [f"📝 **训练历史**（第{page}/{total_pages}页）：\n"]
+    for i, s in enumerate(page_items, start=1):
+        global_idx = total - start_idx - i + 1  # 1-based from oldest
+        turn_count = len(s.conversation) // 2
+        status_label = {"completed": "✅", "abandoned": "⚠️", "active": "🔄"}.get(s.status, "")
+        mode_label = "练习" if s.mode == "customer" else "学习"
+        recep = s.receptivity_history
+        recep_text = f"{recep[0]}→{recep[-1]}" if recep and len(recep) >= 2 else "-"
+        started = s.started_at[:10] if s.started_at else "?"
+        end_labels = {"成功": "有意向", "离开": "离开", "考虑": "考虑", "红线": "红线"}
+        end_text = end_labels.get(s.end_reason, s.end_reason or "-")
+        lines.append(f"{status_label} **#{global_idx}** {started} | {mode_label} | {turn_count}轮 | 接受度{recep_text} | {end_text}")
+
+    lines.append(f"\n`/evaluate` 最近一次 | `/evaluate number:编号` 指定记录 | `/history page:{page+1 if page < total_pages else 1}` 翻页")
+    await interaction.response.send_message("\n".join(lines))
+
+
+# Store completed sessions list for /evaluate number lookup
+def _get_completed_sessions():
+    from storage.session_store import SessionStore
+    sess_store = SessionStore()
+    sessions = sess_store.list_all()
+    return [s for s in sessions if (
+        (s.status in ("completed", "abandoned") and len(s.conversation) >= 2) or
+        (s.status == "active" and len(s.conversation) >= 4)
+    )]
 
 
 @bot.tree.command(name="styles", description="查看可选的销售风格")
@@ -246,7 +529,7 @@ async def slash_styles(interaction: discord.Interaction):
     styles = get_style_choices()
     if styles:
         style_list = "\n".join(f"• {s}" for s in styles)
-        await interaction.response.send_message(f"🎭 **可选销售风格**：\n{style_list}\n\n用 `/start style:风格名` 指定风格")
+        await interaction.response.send_message(f"🎭 **可选销售风格**：\n{style_list}\n\n用 `/learn style:风格名` 指定风格")
     else:
         await interaction.response.send_message("暂无销售风格。可在网页版「风格管理」中提取。")
 
@@ -430,9 +713,13 @@ async def slash_help(interaction: discord.Interaction):
         description=(
             "**训练**\n"
             "/start — 销售训练（AI当客户）\n"
-            "/start style:风格 doc:编号 — 指定风格/文档\n"
+            "/start difficulty:难度 doc:编号 — 指定难度/文档\n"
             "/learn — 学习模式（AI当销售）\n"
-            "/stop — 结束当前会话\n\n"
+            "/learn style:风格 difficulty:难度 — 指定风格/难度\n"
+            "/stop — 结束当前会话并生成评估报告\n"
+            "/evaluate — 查看最近一次训练的评估报告\n"
+            "/evaluate number:编号 — 查看指定训练的评估报告\n"
+            "/history — 查看过往训练记录\n\n"
             "**文档**\n"
             "/files — 查看文档列表\n"
             "/doc number:编号 — 查看/讨论文档\n"
@@ -565,14 +852,17 @@ async def on_message(message):
                     )
                     messages = [
                         {"role": "user" if i % 2 == 0 else "assistant", "content": msg}
-                        for i, msg in enumerate(doc_entry.conversation[-6:])  # 最近3轮
+                        for i, msg in enumerate(doc_entry.conversation[-6:])
                     ]
                     messages.append({"role": "user", "content": message.content})
 
-                    response = client.chat(
-                        messages=messages, system_prompt=system_prompt,
-                        temperature=0.5, max_tokens=2048,
-                    )
+                    def _call_llm():
+                        return client.chat(
+                            messages=messages, system_prompt=system_prompt,
+                            temperature=0.5, max_tokens=2048,
+                        )
+
+                    response = await asyncio.to_thread(_call_llm)
                     doc_store.update_conversation(doc_number, message.content, response)
                     await message.reply(f"📄 **文档#{doc_number}助手**：{response}")
                 except Exception as e:
@@ -614,13 +904,16 @@ async def on_message(message):
                         conversation_content=raw_content or "（未找到原始面聊记录）",
                     )
 
-                    messages = list(report.chat_history[-6:])  # 最近3轮
+                    messages = list(report.chat_history[-6:])
                     messages.append({"role": "user", "content": message.content})
 
-                    response = client.chat(
-                        messages=messages, system_prompt=system_prompt,
-                        temperature=0.5, max_tokens=2048,
-                    )
+                    def _call_llm():
+                        return client.chat(
+                            messages=messages, system_prompt=system_prompt,
+                            temperature=0.5, max_tokens=2048,
+                        )
+
+                    response = await asyncio.to_thread(_call_llm)
 
                     # 保存聊天历史
                     report.chat_history.append({"role": "user", "content": message.content})
@@ -638,22 +931,112 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                ai_response, style_note, receptivity, phase = manager.process_user_message(
-                    session_id, message.content
+                # Run LLM call in thread to avoid blocking event loop
+                ai_response, style_note, receptivity, phase = await asyncio.wait_for(
+                    asyncio.to_thread(manager.process_user_message, session_id, message.content),
+                    timeout=30
                 )
 
-                await message.reply(f"👤 **客户（AI）**: {ai_response}")
+                session = manager.get_session(session_id)
+                if session and session.mode == "salesperson":
+                    role_label = "💼 **销售（AI）**"
+                else:
+                    role_label = "👤 **客户（AI）**"
 
+                # Combine response + style note into one message
+                reply_text = f"{role_label}: {ai_response}"
                 if style_note:
-                    await message.channel.send(f"🎭 **风格注解**：{style_note}")
+                    reply_text += f"\n\n🎭 **风格注解**：{style_note}"
+                await message.reply(reply_text)
 
-                if receptivity <= 0:
-                    await message.channel.send("⚠️ **客户已离开**：看来你的沟通方式让客户失去了兴趣。训练结束。")
-                    del active_sessions[message.channel_id]
+                # Session ended naturally
+                if session and session.status != "active":
+                    end_labels = {"成功": "客户有意向，对话成功结束！", "离开": "客户失去耐心离开了", "考虑": "客户表示需要再考虑", "红线": "触犯红线，客户直接离开"}
+                    end_text = end_labels.get(session.end_reason, "对话已结束")
+                    del active_sessions[message.channel.id]
 
+                    # Generate evaluation report in thread
+                    try:
+                        evaluator = _get_evaluator()
+
+                        # Full report (includes summary internally)
+                        try:
+                            full_report = await asyncio.wait_for(
+                                asyncio.to_thread(evaluator.evaluate, session_id),
+                                timeout=60
+                            )
+                        except asyncio.TimeoutError:
+                            logging.error(f"[on_message] Evaluation timeout for session {session_id[:8]}")
+                            full_report = None
+                        except Exception:
+                            full_report = None
+
+                        # Fallback: summary only
+                        summary = full_report.conversation_summary if full_report else None
+                        if not summary:
+                            try:
+                                summary = await asyncio.wait_for(
+                                    asyncio.to_thread(evaluator.generate_summary_only, session_id),
+                                    timeout=15
+                                )
+                            except Exception:
+                                summary = None
+
+                        turn_count = len(session.conversation) // 2
+                        recep_hist = session.receptivity_history
+                        recep_text = f"{recep_hist[0]}→{recep_hist[-1]}" if recep_hist and len(recep_hist) >= 2 else "-"
+
+                        desc = f"**对话结束**：{end_text}\n**对话轮次**：{turn_count}轮\n**客户接受度**：{recep_text}\n\n"
+                        if summary and len(summary) > 3600:
+                            desc += summary[:3600] + "\n..."
+                        else:
+                            desc += summary or ""
+
+                        embed = discord.Embed(title="📋 训练评估报告", description=desc[:4096], color=discord.Color.gold())
+
+                        if full_report and full_report.deal_progression:
+                            dp = full_report.deal_progression
+                            dp_text = ""
+                            if dp.get("current_stage"):
+                                dp_text += f"**当前阶段**：{dp['current_stage']}\n"
+                            if dp.get("risk_level"):
+                                dp_text += f"**风险等级**：{dp['risk_level']} — {dp.get('risk_reason', '')}\n"
+                            if dp.get("next_steps"):
+                                dp_text += "\n**下一步**：\n"
+                                for step in dp["next_steps"][:3]:
+                                    dp_text += f"{step.get('step', '?')}. {step.get('action', '')}\n"
+                                    if step.get("script"):
+                                        dp_text += f"   话术：{step['script'][:80]}\n"
+                            if dp.get("win_strategy"):
+                                dp_text += f"\n**赢单策略**：{dp['win_strategy']}"
+                            if dp_text:
+                                embed.add_field(name="签单路径", value=dp_text[:1024], inline=False)
+
+                        if full_report and full_report.dimension_scores:
+                            scores_text = ""
+                            for dim, data in full_report.dimension_scores.items():
+                                score = data.get("score", 0) if isinstance(data, dict) else data
+                                bar = "█" * score + "░" * (10 - score)
+                                scores_text += f"{dim}：{bar} {score}/10\n"
+                            if scores_text:
+                                embed.add_field(name="维度评分", value=scores_text[:1024], inline=False)
+
+                        if full_report:
+                            embed.set_footer(text="完整评估报告（含雷达图）请在网页版「评估报告」Tab查看")
+
+                        await message.channel.send(embed=embed)
+                    except Exception as e:
+                        logging.error(f"Failed to generate evaluation: {e}")
+                        await message.channel.send(f"⚠️ 评估报告生成失败：{str(e)[:200]}")
+
+            except asyncio.TimeoutError:
+                await message.channel.send("❌ 回复超时，LLM可能暂时不可用，请稍后重试。")
+                logging.error(f"LLM call timeout for session {session_id[:8] if session_id else '?'}")
             except Exception as e:
                 await message.channel.send(f"❌ 运行出错: {str(e)}")
                 logging.error(f"Error processing message: {e}")
+
+    await bot.process_commands(message)
 
 
 if __name__ == "__main__":

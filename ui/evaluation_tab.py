@@ -43,14 +43,18 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         sessions = session_store.list_all()
         choices = []
         for s in sessions:
-            if s.status != "completed":
+            if s.status not in ("completed", "abandoned"):
                 continue
-            # Filter by user if specified
             if current_user and s.user and s.user != current_user:
                 continue
             mode_label = "销售练习" if s.mode == "customer" else "风格学习"
+            status_label = "已放弃" if s.status == "abandoned" else ""
             user_tag = f"[{s.user}] " if s.user else ""
-            choices.append(f"{user_tag}{s.started_at[:10]} | {mode_label} | {s.id[:8]}")
+            label = f"{user_tag}{s.started_at[:10]} | {mode_label}"
+            if status_label:
+                label += f" | {status_label}"
+            label += f" | {s.id[:8]}"
+            choices.append(label)
         return choices
 
     def generate_evaluation(session_choice):
