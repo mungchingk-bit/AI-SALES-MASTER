@@ -576,8 +576,7 @@ def create_style_tab() -> None:
                 share_copy_btn = gr.Button("复制文本", scale=1)
                 share_docx_btn = gr.Button("导出Word", scale=1)
                 share_image_btn = gr.Button("生成图片", scale=1)
-                share_link_btn = gr.Button("生成链接", scale=1)
-            share_text_output = gr.Textbox(label="复制内容 / 链接", visible=True, interactive=False, lines=3)
+            share_text_output = gr.Textbox(label="复制内容", visible=True, interactive=False, lines=3)
             share_file_output = gr.File(label="下载文件", visible=True)
 
             gr.Markdown("### 与销售大师讨论")
@@ -597,4 +596,3 @@ def create_style_tab() -> None:
     share_copy_btn.click(fn=share_copy_text, inputs=[report_context, report_chatbot, share_select], outputs=[share_text_output])
     share_docx_btn.click(fn=share_export_docx, inputs=[report_context, report_chatbot, share_select], outputs=[share_file_output])
     share_image_btn.click(fn=share_export_image, inputs=[report_context, report_chatbot, share_select], outputs=[share_file_output])
-    share_link_btn.click(fn=share_generate_link, inputs=[report_context, report_chatbot, share_select], outputs=[share_text_output])

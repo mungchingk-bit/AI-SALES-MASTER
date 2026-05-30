@@ -349,8 +349,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         eval_share_copy_btn = gr.Button("复制文本", scale=1)
         eval_share_docx_btn = gr.Button("导出Word", scale=1)
         eval_share_image_btn = gr.Button("生成图片", scale=1)
-        eval_share_link_btn = gr.Button("生成链接", scale=1)
-    eval_share_text_output = gr.Textbox(label="复制内容 / 链接", interactive=False, lines=3)
+    eval_share_text_output = gr.Textbox(label="复制内容", interactive=False, lines=3)
     eval_share_file_output = gr.File(label="下载文件")
 
     def refresh_sessions(current_user=""):
@@ -366,4 +365,3 @@ def create_evaluation_tab(user_dropdown=None) -> None:
     eval_share_copy_btn.click(fn=eval_share_copy, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_text_output])
     eval_share_docx_btn.click(fn=eval_share_docx, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_file_output])
     eval_share_image_btn.click(fn=eval_share_image, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_file_output])
-    eval_share_link_btn.click(fn=eval_share_link, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_text_output])
