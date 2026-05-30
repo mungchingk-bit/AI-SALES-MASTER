@@ -104,6 +104,7 @@ async def on_ready():
 @bot.tree.command(name="start", description="开始销售训练（AI当客户，你练销售）")
 @discord.app_commands.describe(difficulty="选择难度", doc="文档编号，基于文档内容训练（可选）")
 @discord.app_commands.choices(difficulty=[
+    discord.app_commands.Choice(name="自动", value="auto"),
     discord.app_commands.Choice(name="简单", value="easy"),
     discord.app_commands.Choice(name="中等", value="medium"),
     discord.app_commands.Choice(name="困难", value="hard"),
@@ -124,8 +125,12 @@ async def slash_start(interaction: discord.Interaction, difficulty: str = None, 
     scenario["product"] = "婚礼策划服务"
     scenario["industry"] = "婚庆"
 
-    # Parse difficulty (choices already return easy/medium/hard)
-    diff_key = difficulty if difficulty in ("easy", "medium", "hard") else "medium"
+    # Dynamic difficulty: auto-recommend based on history
+    if difficulty and difficulty in ("easy", "medium", "hard"):
+        diff_key = difficulty
+    else:
+        from core.difficulty_engine import DifficultyEngine
+        diff_key = DifficultyEngine().recommend(interaction.user.display_name)
     scenario["difficulty"] = diff_key
 
     # Randomize customer details each session
@@ -172,6 +177,7 @@ async def slash_start(interaction: discord.Interaction, difficulty: str = None, 
 @bot.tree.command(name="learn", description="学习模式（AI当销售，你当客户）")
 @discord.app_commands.describe(style="选择销售风格（可选）", difficulty="选择难度")
 @discord.app_commands.choices(difficulty=[
+    discord.app_commands.Choice(name="自动", value="auto"),
     discord.app_commands.Choice(name="简单", value="easy"),
     discord.app_commands.Choice(name="中等", value="medium"),
     discord.app_commands.Choice(name="困难", value="hard"),
@@ -210,8 +216,12 @@ async def slash_learn(interaction: discord.Interaction, style: str = None, diffi
     scenario["product"] = "婚礼策划服务"
     scenario["industry"] = "婚庆"
 
-    # Parse difficulty (choices already return easy/medium/hard)
-    diff_key = difficulty if difficulty in ("easy", "medium", "hard") else "medium"
+    # Dynamic difficulty
+    if difficulty and difficulty in ("easy", "medium", "hard"):
+        diff_key = difficulty
+    else:
+        from core.difficulty_engine import DifficultyEngine
+        diff_key = DifficultyEngine().recommend(interaction.user.display_name)
     scenario["difficulty"] = diff_key
     scenario["customer_description"] = "正在筹备婚礼的备婚新人"
 
@@ -331,7 +341,11 @@ async def slash_stop(interaction: discord.Interaction):
                     embed.add_field(name="维度评分", value=scores_text[:1024], inline=False)
 
             if full_report:
-                embed.set_footer(text="完整评估报告（含雷达图）请在网页版「评估报告」Tab查看")
+                footer = "完整评估报告（含雷达图）请在网页版「评估报告」Tab查看"
+                extracted = getattr(full_report, '_extracted_phrases', 0)
+                if extracted:
+                    footer += f" | 已自动提取{extracted}条优秀话术"
+                embed.set_footer(text=footer)
 
             await interaction.channel.send(embed=embed)
         except Exception as e:
@@ -706,6 +720,62 @@ async def slash_knowledge(interaction: discord.Interaction):
     await interaction.response.send_message("\n".join(lines))
 
 
+@bot.tree.command(name="weekly", description="生成本周训练复盘报告")
+async def slash_weekly(interaction: discord.Interaction):
+    if not is_allowed_user(interaction.user.id):
+        await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
+        return
+
+    await interaction.response.send_message("⏳ 正在生成每周复盘报告，请稍候...")
+
+    try:
+        from core.weekly_review import WeeklyReviewer
+        reviewer = WeeklyReviewer()
+        review = await asyncio.wait_for(
+            asyncio.to_thread(reviewer.generate, interaction.user.display_name),
+            timeout=60
+        )
+
+        if not review:
+            await interaction.channel.send("📭 本周暂无训练数据，无法生成复盘。先完成几次训练再来查看！")
+            return
+
+        lines = [f"**周期**：{review.week_start} ~ {review.week_end}"]
+        lines.append(f"**训练次数**：{review.session_count}次")
+        lines.append(f"**成功次数**：{review.success_count}次")
+        lines.append(f"**平均总分**：{review.avg_overall_score}/10")
+        lines.append(f"**分数趋势**：{review.score_trend}")
+
+        if review.avg_dimension_scores:
+            dim_text = "、".join(f"{k}{v}分" for k, v in review.avg_dimension_scores.items())
+            lines.append(f"**各维度**：{dim_text}")
+
+        if review.summary:
+            lines.append(f"\n**本周总结**：{review.summary}")
+
+        if review.suggestions:
+            lines.append("\n**改进建议**：")
+            for i, s in enumerate(review.suggestions, 1):
+                lines.append(f"{i}. {s}")
+
+        if review.focus_areas:
+            lines.append("\n**下周重点**：")
+            for i, f in enumerate(review.focus_areas, 1):
+                lines.append(f"{i}. {f}")
+
+        embed = discord.Embed(
+            title="📊 每周训练复盘",
+            description="\n".join(lines)[:4096],
+            color=discord.Color.teal()
+        )
+        await interaction.channel.send(embed=embed)
+    except asyncio.TimeoutError:
+        await interaction.channel.send("⚠️ 复盘报告生成超时，请稍后重试。")
+    except Exception as e:
+        logging.error(f"[weekly] Error: {e}")
+        await interaction.channel.send(f"⚠️ 生成失败：{str(e)[:200]}")
+
+
 @bot.tree.command(name="help", description="查看所有命令")
 async def slash_help(interaction: discord.Interaction):
     embed = discord.Embed(
@@ -730,7 +800,9 @@ async def slash_help(interaction: discord.Interaction):
             "/report number:编号 — 查看报告并讨论\n"
             "/knowledge — 查看原始面聊记录\n\n"
             "**风格**\n"
-            "/styles — 查看可选风格"
+            "/styles — 查看可选风格\n\n"
+            "**复盘**\n"
+            "/weekly — 生成本周训练复盘报告"
         ),
         color=discord.Color.gold()
     )

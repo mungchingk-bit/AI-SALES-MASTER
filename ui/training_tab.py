@@ -290,17 +290,23 @@ def create_training_tab(user_dropdown=None):
                     style_profile_id = p.id
                     break
 
+        # 动态难度：自动模式根据历史评分推荐
+        if difficulty == "auto" or not difficulty:
+            from core.difficulty_engine import DifficultyEngine
+            diff_engine = DifficultyEngine()
+            difficulty = diff_engine.recommend(current_user)
+
         scenario = {
             "product": "婚礼策划服务",
             "industry": "婚礼策划",
             "wedding_type": wedding_type or "酒店婚宴",
-            "difficulty": difficulty or "medium",
+            "difficulty": difficulty,
             "custom_notes": custom_notes or "",
             "customer_name": random.choice(CUSTOMER_NAMES),
             "wedding_date": random.choice(WEDDING_DATES),
             "budget_situation": random.choice(BUDGETS),
             "decision_authority": random.choice(DECISION_AUTHORITIES),
-            "primary_objections": "；".join(_pick_objections_for_difficulty(difficulty or "medium")),
+            "primary_objections": "；".join(_pick_objections_for_difficulty(difficulty)),
         }
 
         if mode == "AI做销售，我学习":
@@ -532,8 +538,8 @@ def create_training_tab(user_dropdown=None):
                 value="酒店婚宴", label="婚礼类型",
             )
             difficulty_radio = gr.Radio(
-                choices=[("简单", "easy"), ("中等", "medium"), ("困难", "hard")],
-                value="medium", label="难度",
+                choices=[("自动", "auto"), ("简单", "easy"), ("中等", "medium"), ("困难", "hard")],
+                value="auto", label="难度",
             )
             custom_notes = gr.Textbox(
                 label="场景备注（可选）", placeholder="如：客户预算有限、时间紧迫等", lines=2,

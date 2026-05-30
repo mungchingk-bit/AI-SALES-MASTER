@@ -54,6 +54,18 @@ EVAL_WEIGHTS = {
     "收尾技巧": 1.0,
 }
 
+# Dynamic Difficulty (动态难度)
+DIFFICULTY_THRESHOLD_EASY = 5.0
+DIFFICULTY_THRESHOLD_HARD = 7.0
+DIFFICULTY_LOOKBACK = 5
+
+# Phrase Extraction (话术自动提取)
+PHRASE_EXTRACTION_ENABLED = True
+PHRASE_EXTRACTION_THRESHOLD = 6.0
+
+# Weekly Review (每周复盘)
+WEEKLY_REVIEW_DIR = os.path.join(DATA_DIR, "weekly_reviews")
+
 # File Upload Configuration
 MAX_FILE_SIZE_MB = 25
 OCR_MODE = os.getenv("OCR_MODE", "ollama_vision")  # "ollama_vision" or "tesseract"
@@ -75,5 +87,5 @@ KNOWLEDGE_DIR = os.path.join(DATA_DIR, "knowledge")
 FILE_DOWNLOAD_DIR = os.path.join(DATA_DIR, "downloads")
 
 # Ensure data directories exist
-for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR]:
+for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR, WEEKLY_REVIEW_DIR]:
     os.makedirs(d, exist_ok=True)

@@ -75,6 +75,16 @@ class Evaluator:
         session.evaluation_id = report.id
         self.session_store.save(session)
 
+        # Auto-extract good phrases from high-scoring sessions
+        extracted = 0
+        try:
+            from core.phrase_extractor import PhraseExtractor
+            extractor = PhraseExtractor()
+            extracted = extractor.extract_and_save(session, report)
+        except Exception:
+            pass
+        report._extracted_phrases = extracted
+
         return report
 
     def generate_summary_only(self, session_id: str) -> str:
