@@ -52,8 +52,8 @@ def main():
     app.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=True,
-        inbrowser=True,
+        share=False,
+        inbrowser=False,
         theme=gr.themes.Soft(),
     )
 
