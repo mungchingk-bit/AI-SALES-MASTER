@@ -121,14 +121,6 @@ def build_main_header():
             scale=2,
             allow_custom_value=True,
         )
-        gen_link_btn = gr.Button("生成访问链接", scale=1)
-        link_output = gr.Textbox(label="访问链接", interactive=False, scale=3)
-
-    def generate_login_link(display_name):
-        ip = get_local_ip()
-        return f"http://{ip}:7860/"
-
-    gen_link_btn.click(fn=generate_login_link, inputs=[user_dropdown], outputs=[link_output])
 
     return {"user_dropdown": user_dropdown, "welcome_md": welcome_md}
 
