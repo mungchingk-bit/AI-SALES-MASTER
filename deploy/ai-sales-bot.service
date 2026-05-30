@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Sales Master Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/AI-SALES-MASTER
+ExecStart=/home/ubuntu/AI-SALES-MASTER/venv/bin/python discord_bot.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
