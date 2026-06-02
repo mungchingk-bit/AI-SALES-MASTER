@@ -63,9 +63,6 @@ DIFFICULTY_LOOKBACK = 5
 PHRASE_EXTRACTION_ENABLED = True
 PHRASE_EXTRACTION_THRESHOLD = 6.0
 
-# Weekly Review (每周复盘)
-WEEKLY_REVIEW_DIR = os.path.join(DATA_DIR, "weekly_reviews")
-
 # File Upload Configuration
 MAX_FILE_SIZE_MB = 25
 OCR_MODE = os.getenv("OCR_MODE", "ollama_vision")  # "ollama_vision" or "tesseract"
@@ -85,6 +82,9 @@ EVALUATIONS_DIR = os.path.join(DATA_DIR, "evaluations")
 REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 KNOWLEDGE_DIR = os.path.join(DATA_DIR, "knowledge")
 FILE_DOWNLOAD_DIR = os.path.join(DATA_DIR, "downloads")
+
+# Weekly Review (每周复盘)
+WEEKLY_REVIEW_DIR = os.path.join(DATA_DIR, "weekly_reviews")
 
 # Ensure data directories exist
 for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR, WEEKLY_REVIEW_DIR]:
