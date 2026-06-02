@@ -83,9 +83,12 @@ REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 KNOWLEDGE_DIR = os.path.join(DATA_DIR, "knowledge")
 FILE_DOWNLOAD_DIR = os.path.join(DATA_DIR, "downloads")
 
+# Scenario History (场景历史，训练去重)
+SCENARIO_HISTORY_DIR = os.path.join(DATA_DIR, "scenario_history")
+
 # Weekly Review (每周复盘)
 WEEKLY_REVIEW_DIR = os.path.join(DATA_DIR, "weekly_reviews")
 
 # Ensure data directories exist
-for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR, WEEKLY_REVIEW_DIR]:
+for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR, SCENARIO_HISTORY_DIR, WEEKLY_REVIEW_DIR]:
     os.makedirs(d, exist_ok=True)

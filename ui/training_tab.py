@@ -278,8 +278,8 @@ def create_training_tab(user_dropdown=None):
         return choices
 
     def start_session(mode, style_name, wedding_type, difficulty, custom_notes, current_user):
-        import random
-        from prompts.customer_simulation import CUSTOMER_NAMES, WEDDING_DATES, BUDGETS, DECISION_AUTHORITIES, _pick_objections_for_difficulty
+        from prompts.customer_simulation import build_diverse_scenario
+        from storage.scenario_history_store import ScenarioHistoryStore
 
         training_mgr = _get_training_mgr()
         style_profile_id = None
@@ -296,18 +296,27 @@ def create_training_tab(user_dropdown=None):
             diff_engine = DifficultyEngine()
             difficulty = diff_engine.recommend(current_user)
 
-        scenario = {
-            "product": "婚礼策划服务",
-            "industry": "婚礼策划",
-            "wedding_type": wedding_type or "酒店婚宴",
-            "difficulty": difficulty,
-            "custom_notes": custom_notes or "",
-            "customer_name": random.choice(CUSTOMER_NAMES),
-            "wedding_date": random.choice(WEDDING_DATES),
-            "budget_situation": random.choice(BUDGETS),
-            "decision_authority": random.choice(DECISION_AUTHORITIES),
-            "primary_objections": "；".join(_pick_objections_for_difficulty(difficulty)),
-        }
+        # 解析婚礼类型：智能推荐 → None（自动选），其他 → 保留用户选择
+        chosen_type = wedding_type if wedding_type and "智能推荐" not in wedding_type else None
+
+        # 使用多样化场景生成，避开最近训练过的内容
+        history_store = ScenarioHistoryStore()
+        user_history = history_store.get_recent(current_user or "")
+
+        scenario = build_diverse_scenario(
+            difficulty=difficulty,
+            wedding_type=chosen_type,
+            custom_notes=custom_notes or "",
+            user_history=user_history,
+        )
+
+        # 记录本次使用的场景元素，下次训练时避开
+        history_store.record_session(current_user or "", {
+            "wedding_type": scenario.get("_wedding_type_key") or scenario.get("wedding_type"),
+            "objection_dimensions": scenario.get("_used_dimensions", []),
+            "personality": scenario.get("customer_personality", ""),
+            "customer_name": scenario.get("customer_name", ""),
+        })
 
         if mode == "AI做销售，我学习":
             scenario["customer_description"] = f"正在筹备{wedding_type or '婚礼'}的备婚新人"
@@ -534,8 +543,9 @@ def create_training_tab(user_dropdown=None):
                 choices=get_style_choices(), value="不指定（默认顾问式）", label="销售风格",
             )
             wedding_type_dropdown = gr.Dropdown(
-                choices=["酒店婚宴", "户外草坪婚礼", "小型精品婚礼", "目的地婚礼"],
-                value="酒店婚宴", label="婚礼类型",
+                choices=["智能推荐（自动避开重复）", "酒店婚宴", "户外草坪婚礼", "小型精品婚礼",
+                         "目的地婚礼", "中式传统婚礼", "海岛/海滨婚礼", "教堂婚礼", "晚宴派对婚礼"],
+                value="智能推荐（自动避开重复）", label="婚礼类型",
             )
             difficulty_radio = gr.Radio(
                 choices=[("自动", "auto"), ("简单", "easy"), ("中等", "medium"), ("困难", "hard")],

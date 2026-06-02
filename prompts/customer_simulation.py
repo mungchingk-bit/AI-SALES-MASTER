@@ -77,10 +77,17 @@ CUSTOMER_SIMULATION_PROMPT = """你是一位真实的潜在客户，你的名字
 
 
 # 随机客户名池
-CUSTOMER_NAMES = ["小林", "小陈", "小王", "小张", "小刘", "小赵", "小雨", "小美", "小慧", "小敏", "阿婷", "阿琳", "阿燕", "阿颖", "阿静"]
+CUSTOMER_NAMES = [
+    "小林", "小陈", "小王", "小张", "小刘", "小赵", "小雨", "小美", "小慧", "小敏",
+    "阿婷", "阿琳", "阿燕", "阿颖", "阿静", "阿琪", "小雅", "阿雪", "小雯", "阿蓉",
+    "小婷", "阿倩", "小莉", "阿蕾", "小悦",
+]
 
 # 随机婚期池
-WEDDING_DATES = ["2026年10月", "2026年11月", "2026年12月", "2027年1月", "2027年3月", "2027年5月", "2027年10月", "2027年12月"]
+WEDDING_DATES = [
+    "2026年10月", "2026年11月", "2026年12月", "2027年1月", "2027年3月", "2027年5月",
+    "2027年6月", "2027年9月", "2027年10月", "2027年12月", "2028年3月", "2028年5月",
+]
 
 # 随机预算池
 BUDGETS = [
@@ -92,6 +99,10 @@ BUDGETS = [
     "预算6-10万，希望性价比高",
     "预算20万以上，追求品质",
     "预算8-15万，需要和双方父母商量",
+    "预算3-5万，非常紧张",
+    "预算25-30万，父母赞助",
+    "预算10-12万，性价比优先",
+    "预算15-25万，愿意为设计买单",
 ]
 
 # 随机决策权池
@@ -102,6 +113,9 @@ DECISION_AUTHORITIES = [
     "父母出钱，父母说了算",
     "新娘和闺蜜一起参谋",
     "双方父母都有意见，需要协调",
+    "新娘完全决定，未婚夫不管",
+    "公婆出大部分钱，话语权很大",
+    "新郎新娘共同决策，但预算由新郎掌控",
 ]
 
 # 婚礼行业场景模板
@@ -133,6 +147,34 @@ WEDDING_SCENARIOS = {
         "guest_count": "50-100人",
         "core_needs": "在风景优美的地方办婚礼，兼顾旅行和仪式",
         "primary_objections": "宾客交通住宿成本高，异地执行不可控，当地供应商质量不确定",
+    },
+    "中式传统婚礼": {
+        "wedding_type": "中式传统婚礼（大院/祠堂）",
+        "customer_identity": "备婚新人（重视传统和仪式感）",
+        "guest_count": "30-50桌",
+        "core_needs": "想要有传统文化底蕴的婚礼，长辈满意",
+        "primary_objections": "担心中式风格不够时尚，年轻人可能觉得老气，执行难度大",
+    },
+    "海岛/海滨婚礼": {
+        "wedding_type": "海岛/海滨婚礼（深圳/厦门）",
+        "customer_identity": "备婚新人（追求浪漫氛围）",
+        "guest_count": "10-20桌",
+        "core_needs": "在海边办一场浪漫婚礼，自然风光+精致晚宴",
+        "primary_objections": "担心潮汐和天气，海风影响布置效果，交通不便",
+    },
+    "教堂婚礼": {
+        "wedding_type": "教堂仪式+婚宴",
+        "customer_identity": "备婚新人（向往西式庄重感）",
+        "guest_count": "15-25桌",
+        "core_needs": "在教堂举行仪式感强的婚礼，然后转场酒店婚宴",
+        "primary_objections": "教堂档期难约，双场地费用高，转场时间紧张",
+    },
+    "晚宴派对婚礼": {
+        "wedding_type": "晚宴派对婚礼（after-party风格）",
+        "customer_identity": "备婚新人（年轻时尚，不喜欢传统流程）",
+        "guest_count": "8-15桌",
+        "core_needs": "想办一场像私人晚宴派对的婚礼，轻松随意但有格调",
+        "primary_objections": "长辈可能觉得不够正式，担心氛围太随意，没有仪式感",
     },
 }
 
@@ -208,6 +250,20 @@ OBJECTION_DIMENSIONS = {
         "怕请了太多人反而不自在",
         "想要有温度的婚礼，不想只是走过场",
     ],
+    "售后保障": [
+        "婚礼结束后还管不管？出了问题找谁",
+        "布置拆除谁负责？会不会额外收费",
+        "后续修图交付要多久？不满意怎么办",
+        "当天跟拍视频什么时候能拿到",
+        "如果当天有物品损坏怎么赔偿",
+    ],
+    "二次消费": [
+        "听说很多婚庆会推销升级套餐",
+        "担心选花艺的时候被引导加钱",
+        "试妆和试纱会不会另外收费",
+        "摄影摄像升级要加多少费用",
+        "设计图确认后改方案会不会加价",
+    ],
 }
 
 # 扁平化的全部顾虑池（向后兼容）
@@ -241,7 +297,7 @@ def _pick_objections_for_difficulty(difficulty: str) -> list[str]:
         objections.extend(random.sample(items, count))
     return objections
 
-# 难度设定（婚礼行业版）
+# 难度设定（婚礼行业版）— 保留兼容
 DIFFICULTY_SETTINGS = {
     "easy": {
         "receptivity_score": 6,
@@ -262,6 +318,159 @@ DIFFICULTY_SETTINGS = {
         "red_line_action": "用模板化话术敷衍，不解决具体问题",
     },
 }
+
+# 多样化性格池 — 每种难度多种性格，优先选没用过的
+DIFFICULTY_PERSONALITIES = {
+    "easy": [
+        "友善开放，已经对比过几家，对你们有好感",
+        "热情主动，很期待婚礼，愿意分享想法",
+        "随和健谈，对婚礼了解不多但很感兴趣",
+    ],
+    "medium": [
+        "务实谨慎，看过很多小红书攻略，要求性价比",
+        "理性对比型，手里有3家报价在做比较",
+        "纠结犹豫型，什么都想要但预算有限",
+        "精致挑剔型，对细节要求高但表达含蓄",
+    ],
+    "hard": [
+        "挑剔多疑，已经看过3-5家，觉得都差不多，对婚庆行业有偏见",
+        "强势压价型，自认为很懂行，上来就要求打折",
+        "冷漠防御型，不想被推销，回答都很简短",
+    ],
+}
+
+DIFFICULTY_TRIGGERS = {
+    "easy": [
+        "展示真实的案例效果和详细的费用明细",
+        "真诚地倾听需求并给出贴心建议",
+    ],
+    "medium": [
+        "用真实案例和具体数字证明价值，而不是空话",
+        "准确抓住核心需求并提出差异化方案",
+        "主动坦白优劣势，建立信任后再推荐",
+    ],
+    "hard": [
+        "展现出专业深度（设计、施工、花艺）并给出差异化的价值洞察",
+        "直面质疑不回避，用数据和案例逐一回应",
+    ],
+}
+
+DIFFICULTY_RED_LINES = {
+    "easy": [
+        "反复施压逼单而不回应我的顾虑",
+        "态度敷衍，明显没有认真听我说话",
+    ],
+    "medium": [
+        "夸大效果或回避价格问题",
+        "一直在推销高价套餐，不考虑我的实际预算",
+        "对质疑避重就轻，不正面回答问题",
+    ],
+    "hard": [
+        "用模板化话术敷衍，不解决具体问题",
+        "被指出问题后还狡辩推脱，不肯承认不足",
+    ],
+}
+
+
+def build_diverse_scenario(
+    difficulty: str,
+    wedding_type: str | None = None,
+    custom_notes: str = "",
+    user_history: dict | None = None,
+) -> dict:
+    """Build a scenario that avoids repeating recently-used elements."""
+    history = user_history or {}
+    recent_types = history.get("used_wedding_types", [])
+    recent_dims = history.get("used_objection_dimensions", [])
+    recent_personalities = history.get("used_personalities", [])
+    recent_names = history.get("used_customer_names", [])
+
+    # Wedding type: prefer not-yet-used
+    if wedding_type:
+        chosen_type = wedding_type
+    else:
+        all_types = list(WEDDING_SCENARIOS.keys())
+        unused_types = [t for t in all_types if t not in recent_types]
+        chosen_type = random.choice(unused_types) if unused_types else random.choice(all_types)
+
+    # Objections: prefer unused dimensions
+    objections, chosen_dims = _pick_diverse_objections(difficulty, recent_dims)
+
+    # Personality: prefer not-yet-used
+    personality_pool = DIFFICULTY_PERSONALITIES.get(difficulty, DIFFICULTY_PERSONALITIES["medium"])
+    unused_personalities = [p for p in personality_pool if p not in recent_personalities]
+    personality = random.choice(unused_personalities) if unused_personalities else random.choice(personality_pool)
+
+    # Trigger and red line: random from pool
+    trigger_pool = DIFFICULTY_TRIGGERS.get(difficulty, DIFFICULTY_TRIGGERS["medium"])
+    trigger = random.choice(trigger_pool)
+    red_line_pool = DIFFICULTY_RED_LINES.get(difficulty, DIFFICULTY_RED_LINES["medium"])
+    red_line = random.choice(red_line_pool)
+
+    # Name: prefer not-yet-used
+    unused_names = [n for n in CUSTOMER_NAMES if n not in recent_names]
+    name = random.choice(unused_names) if unused_names else random.choice(CUSTOMER_NAMES)
+
+    # Date, budget, authority: pure random
+    date = random.choice(WEDDING_DATES)
+    budget = random.choice(BUDGETS)
+    authority = random.choice(DECISION_AUTHORITIES)
+
+    type_settings = WEDDING_SCENARIOS.get(chosen_type, WEDDING_SCENARIOS["酒店婚宴"])
+
+    scenario = {
+        "product": "婚礼策划服务",
+        "industry": "婚礼策划",
+        "difficulty": difficulty,
+        "custom_notes": custom_notes,
+        "customer_name": name,
+        "wedding_date": date,
+        "budget_situation": budget,
+        "decision_authority": authority,
+        "primary_objections": "；".join(objections),
+        "customer_personality": personality,
+        "trigger_action": trigger,
+        "red_line_action": red_line,
+        "_used_dimensions": chosen_dims,
+        "_wedding_type_key": chosen_type,
+        **type_settings,
+    }
+
+    return scenario
+
+
+def _pick_diverse_objections(difficulty: str, recent_dimensions: list[str]) -> tuple[list[str], list[str]]:
+    """Pick objections from dimensions not recently used. Returns (objections, dimension_names)."""
+    all_dims = list(OBJECTION_DIMENSIONS.keys())
+
+    if difficulty == "easy":
+        dim_count = 3
+        preferred = ["价格透明", "流程服务", "信任口碑", "时间压力", "情感顾虑", "售后保障", "二次消费"]
+    elif difficulty == "hard":
+        dim_count = 4
+        preferred = ["品牌差异", "合同保障", "设计效果", "专业能力", "信任口碑", "家庭决策", "售后保障", "二次消费"]
+    else:
+        dim_count = 3
+        preferred = all_dims
+
+    available = [d for d in preferred if d not in recent_dimensions]
+    if len(available) < dim_count:
+        for d in recent_dimensions:
+            if d in preferred and d not in available:
+                available.append(d)
+            if len(available) >= dim_count:
+                break
+    if len(available) < dim_count:
+        available = list(preferred)
+
+    chosen_dims = random.sample(available, min(dim_count, len(available)))
+
+    objections = []
+    for dim in chosen_dims:
+        items = OBJECTION_DIMENSIONS[dim]
+        count = random.randint(1, min(2, len(items)))
+        objections.extend(random.sample(items, count))
+    return objections, chosen_dims
 
 
 def build_customer_prompt(scenario: dict) -> str:
