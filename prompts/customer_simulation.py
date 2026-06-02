@@ -372,17 +372,61 @@ DIFFICULTY_RED_LINES = {
 }
 
 
+def _generate_dynamic_details(wedding_type: str, difficulty: str, recent_topics: str) -> dict | None:
+    """Use LLM to generate unique personality, objections, trigger, and red line.
+    Returns None on failure so caller can fall back to pool-based selection."""
+    try:
+        from core.llm_client import get_client
+        client = get_client()
+        diff_labels = {"easy": "简单（客户较友好）", "medium": "中等（客户理性务实）", "hard": "困难（客户挑剔防备）"}
+        prompt = f"""你是一个婚礼销售训练的场景设计师。请为一次销售模拟训练生成一个**全新、独特**的客户设定。
+
+要求：
+1. 婚礼类型：{wedding_type}
+2. 难度：{diff_labels.get(difficulty, difficulty)}
+3. 必须和以下近期训练过的主题完全不同：{recent_topics or '无（首次训练）'}
+
+请严格按以下JSON格式输出，不要加其他内容：
+{{
+  "customer_personality": "一句独特的客户性格描述（不要用'务实谨慎''友善开放'等常见词，要具体、有画面感）",
+  "primary_objections": "3-4个具体的、与众不同的顾虑，用分号分隔（不要重复近期训练过的主题）",
+  "trigger_action": "一句话：什么做法能让这个客户被打动",
+  "red_line_action": "一句话：什么做法会让这个客户直接翻脸走人"
+}}
+
+关键：每次生成的内容必须完全不同，要有创意！可以从这些角度切入：
+- 不同的人生阶段（刚毕业、二次婚姻、父母催婚、跨国恋...）
+- 不同的预算压力（房贷压身、积蓄有限、父母赞助有条件...）
+- 不同的审美取向（极简主义、复古怀旧、网红跟风、文化自信...）
+- 不同的社交压力（朋友圈比较、同事刚办过、婆媳矛盾...）"""
+
+        response = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt="你是一个训练场景设计师，专门生成不重复的、有创意的客户设定。只输出JSON，不要解释。",
+            temperature=0.9,
+            max_tokens=500,
+            model=config.FAST_MODEL or None,
+        )
+        # Parse JSON from response
+        import json
+        text = response.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        return json.loads(text)
+    except Exception:
+        return None
+
+
 def build_diverse_scenario(
     difficulty: str,
     wedding_type: str | None = None,
     custom_notes: str = "",
     user_history: dict | None = None,
 ) -> dict:
-    """Build a scenario that avoids repeating recently-used elements."""
+    """Build a scenario that avoids repeating recently-used elements.
+    Uses LLM to generate truly unique personality/objections each time."""
     history = user_history or {}
     recent_types = history.get("used_wedding_types", [])
-    recent_dims = history.get("used_objection_dimensions", [])
-    recent_personalities = history.get("used_personalities", [])
     recent_names = history.get("used_customer_names", [])
 
     # Wedding type: prefer not-yet-used
@@ -393,19 +437,32 @@ def build_diverse_scenario(
         unused_types = [t for t in all_types if t not in recent_types]
         chosen_type = random.choice(unused_types) if unused_types else random.choice(all_types)
 
-    # Objections: prefer unused dimensions
-    objections, chosen_dims = _pick_diverse_objections(difficulty, recent_dims)
+    # Build recent topics string for LLM context
+    recent_personalities = history.get("used_personalities", [])
+    recent_dims = history.get("used_objection_dimensions", [])
+    recent_objections = history.get("used_objections", [])
+    recent_topics = "；".join(recent_personalities[-3:] + recent_dims[-5:] + recent_objections[-3:])
 
-    # Personality: prefer not-yet-used
-    personality_pool = DIFFICULTY_PERSONALITIES.get(difficulty, DIFFICULTY_PERSONALITIES["medium"])
-    unused_personalities = [p for p in personality_pool if p not in recent_personalities]
-    personality = random.choice(unused_personalities) if unused_personalities else random.choice(personality_pool)
+    # Use LLM to generate dynamic, unique details
+    dynamic = _generate_dynamic_details(chosen_type, difficulty, recent_topics)
 
-    # Trigger and red line: random from pool
-    trigger_pool = DIFFICULTY_TRIGGERS.get(difficulty, DIFFICULTY_TRIGGERS["medium"])
-    trigger = random.choice(trigger_pool)
-    red_line_pool = DIFFICULTY_RED_LINES.get(difficulty, DIFFICULTY_RED_LINES["medium"])
-    red_line = random.choice(red_line_pool)
+    if dynamic:
+        personality = dynamic.get("customer_personality", "")
+        objections_text = dynamic.get("primary_objections", "")
+        trigger = dynamic.get("trigger_action", "")
+        red_line = dynamic.get("red_line_action", "")
+        chosen_dims = []  # LLM-generated, no fixed dimensions
+    else:
+        # Fallback to pool-based selection
+        objections, chosen_dims = _pick_diverse_objections(difficulty, recent_dims)
+        personality_pool = DIFFICULTY_PERSONALITIES.get(difficulty, DIFFICULTY_PERSONALITIES["medium"])
+        unused_p = [p for p in personality_pool if p not in recent_personalities]
+        personality = random.choice(unused_p) if unused_p else random.choice(personality_pool)
+        objections_text = "；".join(objections)
+        trigger_pool = DIFFICULTY_TRIGGERS.get(difficulty, DIFFICULTY_TRIGGERS["medium"])
+        trigger = random.choice(trigger_pool)
+        red_line_pool = DIFFICULTY_RED_LINES.get(difficulty, DIFFICULTY_RED_LINES["medium"])
+        red_line = random.choice(red_line_pool)
 
     # Name: prefer not-yet-used
     unused_names = [n for n in CUSTOMER_NAMES if n not in recent_names]
@@ -427,7 +484,7 @@ def build_diverse_scenario(
         "wedding_date": date,
         "budget_situation": budget,
         "decision_authority": authority,
-        "primary_objections": "；".join(objections),
+        "primary_objections": objections_text,
         "customer_personality": personality,
         "trigger_action": trigger,
         "red_line_action": red_line,

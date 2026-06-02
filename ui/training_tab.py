@@ -316,6 +316,7 @@ def create_training_tab(user_dropdown=None):
             "objection_dimensions": scenario.get("_used_dimensions", []),
             "personality": scenario.get("customer_personality", ""),
             "customer_name": scenario.get("customer_name", ""),
+            "primary_objections": scenario.get("primary_objections", ""),
         })
 
         if mode == "AI做销售，我学习":

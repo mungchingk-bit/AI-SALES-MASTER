@@ -7,6 +7,7 @@ import config
 _MAX_WEDDING_TYPES = 8
 _MAX_DIMENSIONS = 10
 _MAX_PERSONALITIES = 5
+_MAX_OBJECTIONS = 10
 _MAX_NAMES = 15
 
 
@@ -59,6 +60,11 @@ class ScenarioHistoryStore:
             lst.append(elements["customer_name"])
             data["used_customer_names"] = lst[-_MAX_NAMES:]
 
+        if "primary_objections" in elements and elements["primary_objections"]:
+            lst = data.get("used_objections", [])
+            lst.append(elements["primary_objections"])
+            data["used_objections"] = lst[-_MAX_OBJECTIONS:]
+
         from datetime import datetime
         data["last_updated"] = datetime.now().isoformat()
         self.save(user, data)
@@ -70,6 +76,7 @@ class ScenarioHistoryStore:
             "used_objection_dimensions": data.get("used_objection_dimensions", []),
             "used_personalities": data.get("used_personalities", []),
             "used_customer_names": data.get("used_customer_names", []),
+            "used_objections": data.get("used_objections", []),
         }
 
     def _empty(self, user: str) -> dict:
@@ -80,4 +87,5 @@ class ScenarioHistoryStore:
             "used_objection_dimensions": [],
             "used_personalities": [],
             "used_customer_names": [],
+            "used_objections": [],
         }
