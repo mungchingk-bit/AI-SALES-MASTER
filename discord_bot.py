@@ -8,7 +8,7 @@ import config
 from discord.ext import commands
 from core.training_manager import TrainingManager
 from core.file_discussion_manager import FileDiscussionManager
-from prompts.customer_simulation import WEDDING_SCENARIOS
+from prompts.customer_simulation import build_diverse_scenario
 from prompts.file_discussion import FILE_DISCUSSION_SYSTEM_PROMPT
 from prompts.report_chat import REPORT_CHAT_SYSTEM_PROMPT
 from storage.style_store import StyleStore
@@ -121,26 +121,33 @@ async def slash_start(interaction: discord.Interaction, difficulty: str = None, 
     if interaction.channel_id in active_report_sessions:
         del active_report_sessions[interaction.channel_id]
 
-    scenario = dict(WEDDING_SCENARIOS["酒店婚宴"])
-    scenario["product"] = "婚礼策划服务"
-    scenario["industry"] = "婚庆"
-
     # Dynamic difficulty: auto-recommend based on history
     if difficulty and difficulty in ("easy", "medium", "hard"):
         diff_key = difficulty
     else:
         from core.difficulty_engine import DifficultyEngine
         diff_key = DifficultyEngine().recommend(interaction.user.display_name)
-    scenario["difficulty"] = diff_key
 
-    # Randomize customer details each session
-    import random as _rand
-    from prompts.customer_simulation import CUSTOMER_NAMES, WEDDING_DATES, BUDGETS, DECISION_AUTHORITIES, _pick_objections_for_difficulty
-    scenario["customer_name"] = _rand.choice(CUSTOMER_NAMES)
-    scenario["wedding_date"] = _rand.choice(WEDDING_DATES)
-    scenario["budget_situation"] = _rand.choice(BUDGETS)
-    scenario["decision_authority"] = _rand.choice(DECISION_AUTHORITIES)
-    scenario["primary_objections"] = "；".join(_pick_objections_for_difficulty(diff_key))
+    # Use diverse scenario generation (same as web version)
+    from prompts.customer_simulation import build_diverse_scenario
+    from storage.scenario_history_store import ScenarioHistoryStore
+    history_store = ScenarioHistoryStore()
+    user_history = history_store.get_recent(interaction.user.display_name)
+
+    scenario = build_diverse_scenario(
+        difficulty=diff_key,
+        custom_notes="",
+        user_history=user_history,
+    )
+
+    # Record what was used for next time
+    history_store.record_session(interaction.user.display_name, {
+        "wedding_type": scenario.get("_wedding_type_key") or scenario.get("wedding_type"),
+        "objection_dimensions": scenario.get("_used_dimensions", []),
+        "personality": scenario.get("customer_personality", ""),
+        "customer_name": scenario.get("customer_name", ""),
+        "primary_objections": scenario.get("primary_objections", ""),
+    })
 
     # 如果指定了文档，把文档内容注入场景
     doc_info = ""
@@ -212,27 +219,34 @@ async def slash_learn(interaction: discord.Interaction, style: str = None, diffi
                 await interaction.response.send_message(f"❌ 未找到风格「{style}」。用 `/learn` 使用默认。")
             return
 
-    scenario = dict(WEDDING_SCENARIOS["酒店婚宴"])
-    scenario["product"] = "婚礼策划服务"
-    scenario["industry"] = "婚庆"
-
     # Dynamic difficulty
     if difficulty and difficulty in ("easy", "medium", "hard"):
         diff_key = difficulty
     else:
         from core.difficulty_engine import DifficultyEngine
         diff_key = DifficultyEngine().recommend(interaction.user.display_name)
-    scenario["difficulty"] = diff_key
+
+    # Use diverse scenario generation (same as web version)
+    from prompts.customer_simulation import build_diverse_scenario
+    from storage.scenario_history_store import ScenarioHistoryStore
+    history_store = ScenarioHistoryStore()
+    user_history = history_store.get_recent(interaction.user.display_name)
+
+    scenario = build_diverse_scenario(
+        difficulty=diff_key,
+        custom_notes="",
+        user_history=user_history,
+    )
     scenario["customer_description"] = "正在筹备婚礼的备婚新人"
 
-    # Randomize customer details for learn mode too
-    import random as _rand2
-    from prompts.customer_simulation import CUSTOMER_NAMES, WEDDING_DATES, BUDGETS, DECISION_AUTHORITIES, _pick_objections_for_difficulty
-    scenario["customer_name"] = _rand2.choice(CUSTOMER_NAMES)
-    scenario["wedding_date"] = _rand2.choice(WEDDING_DATES)
-    scenario["budget_situation"] = _rand2.choice(BUDGETS)
-    scenario["decision_authority"] = _rand2.choice(DECISION_AUTHORITIES)
-    scenario["primary_objections"] = "；".join(_pick_objections_for_difficulty(diff_key))
+    # Record what was used for next time
+    history_store.record_session(interaction.user.display_name, {
+        "wedding_type": scenario.get("_wedding_type_key") or scenario.get("wedding_type"),
+        "objection_dimensions": scenario.get("_used_dimensions", []),
+        "personality": scenario.get("customer_personality", ""),
+        "customer_name": scenario.get("customer_name", ""),
+        "primary_objections": scenario.get("primary_objections", ""),
+    })
 
     session = manager.create_session(
         mode="salesperson",
