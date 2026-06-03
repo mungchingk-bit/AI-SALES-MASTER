@@ -8,8 +8,33 @@ from storage.style_store import StyleStore
 import config
 
 
+def _dedup_styles(store):
+    """Auto-merge duplicate-named styles, keeping one merged profile per name."""
+    profiles = store.list_all()
+    name_groups = {}
+    for p in profiles:
+        key = p.name.replace("面聊式", "式")
+        name_groups.setdefault(key, []).append(p)
+    for key, group in name_groups.items():
+        if len(group) <= 1:
+            # Also rename if needed (e.g., "免免面聊式" → "免免式")
+            if group and group[0].name != key:
+                group[0].name = key
+                store.save(group[0])
+            continue
+        # Merge all into one
+        merged = group[0]
+        for other in group[1:]:
+            merged = store.merge(merged, other, merged_name=key)
+        # Ensure final name is clean (e.g., "免免式" not "免免面聊式")
+        if merged.name != key:
+            merged.name = key
+            store.save(merged)
+
+
 def create_style_tab(user_dropdown=None) -> None:
     store = StyleStore()
+    _dedup_styles(store)
 
     def get_style_names(current_user=""):
         profiles = store.list_all()
