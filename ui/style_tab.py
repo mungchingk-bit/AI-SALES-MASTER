@@ -21,17 +21,16 @@ def create_style_tab(user_dropdown=None) -> None:
         profiles = _filter_profiles_for_user(profiles, current_user)
         if not profiles:
             return "暂无风格档案，请上传销售对话文件来提取风格"
-        lines = ["| 风格 | 语气基调 | 标志性用语 | 异议处理 | 成交风格 |", "|------|----------|-----------|----------|----------|"]
+        lines = ["| 风格 | 语气基调 | 异议处理 | 成交风格 |", "|------|----------|----------|----------|"]
         for p in profiles:
             traits = p.extracted_traits
             tone = traits.get("tone", "-")
-            phrases = ", ".join(traits.get("key_phrases", [])[:3]) or "-"
             objection = traits.get("objection_strategy", "-")
             closing = traits.get("closing_style", "-")
-            if len(tone) > 20: tone = tone[:20] + "..."
-            if len(objection) > 20: objection = objection[:20] + "..."
-            if len(closing) > 20: closing = closing[:20] + "..."
-            lines.append(f"| **{p.name}** | {tone} | {phrases} | {objection} | {closing} |")
+            if len(tone) > 15: tone = tone[:15] + "…"
+            if len(objection) > 15: objection = objection[:15] + "…"
+            if len(closing) > 15: closing = closing[:15] + "…"
+            lines.append(f"| **{p.name}** | {tone} | {objection} | {closing} |")
         return "\n".join(lines)
 
     def _get_user_name(user_dropdown_val):
@@ -89,7 +88,9 @@ def create_style_tab(user_dropdown=None) -> None:
                 return f"风格槽位已满（最多{config.MAX_STYLE_SLOTS}个），请先删除已有风格", _refresh_styles()
             store.save(profile)
             provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
-            return f"风格「{profile.name}」提取成功！({provider_label})\n\n{profile.description}", _refresh_styles()
+            short_desc = (profile.description or "")[:80]
+            if len(profile.description or "") > 80: short_desc += "…"
+            return f"风格「{profile.name}」提取成功！({provider_label})\n{short_desc}", _refresh_styles()
         except Exception as e:
             return f"提取失败：{str(e)}", _refresh_styles()
 
