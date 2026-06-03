@@ -542,6 +542,14 @@ def create_style_tab() -> None:
         with gr.Column(scale=1):
             gr.Markdown("### 我的风格档案")
             styles_display = gr.Markdown(_refresh_styles())
+            with gr.Row():
+                delete_style_dropdown = gr.Dropdown(label="选择风格", choices=get_style_names(), scale=3)
+                delete_style_btn = gr.Button("删除", variant="stop", scale=1)
+            with gr.Row():
+                merge_a = gr.Dropdown(label="风格A", choices=get_style_names(), scale=2)
+                merge_b = gr.Dropdown(label="风格B", choices=get_style_names(), scale=2)
+                merge_style_btn = gr.Button("合并", variant="secondary", scale=1)
+            style_action_result = gr.Markdown("")
 
     with gr.Row():
         with gr.Column():
@@ -590,6 +598,36 @@ def create_style_tab() -> None:
     preview_btn.click(fn=preview_before_extract, inputs=[file_input], outputs=[preview_result, extract_result])
     extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input], outputs=[extract_result, styles_display])
     import_kb_btn.click(fn=import_from_knowledge_base, inputs=[], outputs=[import_kb_result, styles_display, report_dropdown])
+
+    def delete_style(name):
+        if not name:
+            return "请选择要删除的风格", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+        profiles = store.list_all()
+        for p in profiles:
+            if p.name == name:
+                store.delete(p.id)
+                new_names = get_style_names()
+                return f"已删除「{name}」", _refresh_styles(), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
+        return f"未找到「{name}」", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+
+    def merge_styles(name_a, name_b):
+        if not name_a or not name_b:
+            return "请选择两个风格进行合并", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+        if name_a == name_b:
+            return "请选择不同的风格", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+        profiles = store.list_all()
+        pa = next((p for p in profiles if p.name == name_a), None)
+        pb = next((p for p in profiles if p.name == name_b), None)
+        if not pa or not pb:
+            return "未找到所选风格", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+        merged_name = name_a.replace("面聊式", "").replace("式", "") + "式"
+        store.merge(pa, pb, merged_name=merged_name)
+        new_names = get_style_names()
+        return f"已合并为「{merged_name}」", _refresh_styles(), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
+
+    delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+    merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+
     compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
     view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown], outputs=[report_display, report_context, report_chatbot, share_select])
     report_chat_input.submit(fn=chat_with_report, inputs=[report_chat_input, report_chatbot, report_context], outputs=[report_chat_input, report_chatbot])
