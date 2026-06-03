@@ -14,7 +14,13 @@ def create_style_tab(user_dropdown=None) -> None:
     def get_style_names(current_user=""):
         profiles = store.list_all()
         profiles = _filter_profiles_for_user(profiles, current_user)
-        return [p.name for p in profiles]
+        return [f"{p.name} ({p.id[:6]})" for p in profiles]
+
+    def _parse_style_name(label):
+        """Extract style name from '免免式 (abc123)' format."""
+        if " (" in label:
+            return label.rsplit(" (", 1)[0]
+        return label
 
     def _refresh_styles(current_user=""):
         profiles = store.list_all()
@@ -108,7 +114,16 @@ def create_style_tab(user_dropdown=None) -> None:
         report_store = ReportStore()
         existing = store.list_all()
         # name_map: 销售名字 → StyleProfile（用于合并）
-        name_map = {p.name.replace("式", "").replace("面聊", ""): p for p in existing}
+        # Also track which source_files are already covered per salesperson
+        name_map = {}
+        existing_sources = {}
+        for p in existing:
+            key = p.name.replace("式", "").replace("面聊", "")
+            name_map[key] = p
+            if key not in existing_sources:
+                existing_sources[key] = set()
+            for src in (p.source_file or "").split(" + "):
+                existing_sources[key].add(src.strip())
         existing_reports = {r.source_file for r in report_store.list_all()}
         results = []
 
@@ -121,7 +136,8 @@ def create_style_tab(user_dropdown=None) -> None:
             sales_name = match.group(1)
             style_name = f"{sales_name}式"
 
-            if sales_name in name_map and name_map[sales_name].source_file == entry.source_file:
+            # Skip if this exact source file already imported for this salesperson
+            if sales_name in existing_sources and entry.source_file in existing_sources[sales_name]:
                 results.append(f"[跳过] 风格「{style_name}」已存在（话术库）")
                 continue
 
@@ -134,10 +150,12 @@ def create_style_tab(user_dropdown=None) -> None:
                 if sales_name in name_map:
                     merged = store.merge(name_map[sales_name], profile, merged_name=style_name)
                     name_map[sales_name] = merged
+                    existing_sources.setdefault(sales_name, set()).add(entry.source_file)
                     results.append(f"[合并] 风格「{style_name}」已与现有档案合并")
                 else:
                     store.save(profile)
                     name_map[sales_name] = profile
+                    existing_sources.setdefault(sales_name, set()).add(entry.source_file)
                     results.append(f"[成功] 风格「{profile.name}」: {profile.description}")
             except Exception as e:
                 results.append(f"[失败] {entry.title}: {str(e)}")
@@ -151,23 +169,30 @@ def create_style_tab(user_dropdown=None) -> None:
             sales_name = match.group(1)
             style_name = f"{sales_name}式"
 
-            try:
-                content = entry.content[:8000]
-                messages = [ChatMessage(role="user", content=content)]
-                profile = extractor.extract(messages, source_file=entry.source_file)
-                profile.name = f"{sales_name}面聊式"
+            # Skip if this exact source file already imported
+            if sales_name in existing_sources and entry.source_file in existing_sources[sales_name]:
+                results.append(f"[跳过] 风格「{style_name}」面聊记录已导入")
+                # Still try to generate report if missing
+            else:
+                try:
+                    content = entry.content[:8000]
+                    messages = [ChatMessage(role="user", content=content)]
+                    profile = extractor.extract(messages, source_file=entry.source_file)
+                    profile.name = f"{sales_name}面聊式"
 
-                if sales_name in name_map:
-                    merged = store.merge(name_map[sales_name], profile, merged_name=style_name)
-                    name_map[sales_name] = merged
-                    results.append(f"[合并] 风格「{style_name}」已与话术库档案合并")
-                else:
-                    profile.name = style_name
-                    store.save(profile)
-                    name_map[sales_name] = profile
-                    results.append(f"[成功] 风格「{profile.name}」: {profile.description}")
-            except Exception as e:
-                results.append(f"[失败] {entry.title}: {str(e)}")
+                    if sales_name in name_map:
+                        merged = store.merge(name_map[sales_name], profile, merged_name=style_name)
+                        name_map[sales_name] = merged
+                        existing_sources.setdefault(sales_name, set()).add(entry.source_file)
+                        results.append(f"[合并] 风格「{style_name}」已与话术库档案合并")
+                    else:
+                        profile.name = style_name
+                        store.save(profile)
+                        name_map[sales_name] = profile
+                        existing_sources.setdefault(sales_name, set()).add(entry.source_file)
+                        results.append(f"[成功] 风格「{profile.name}」: {profile.description}")
+                except Exception as e:
+                    results.append(f"[失败] {entry.title}: {str(e)}")
 
             # 生成面聊汇报
             if entry.source_file not in existing_reports:
@@ -610,27 +635,35 @@ def create_style_tab(user_dropdown=None) -> None:
     extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input], outputs=[extract_result, styles_display])
     import_kb_btn.click(fn=import_from_knowledge_base, inputs=[], outputs=[import_kb_result, styles_display, report_dropdown])
 
-    def delete_style(name, current_user=""):
+    def delete_style(label, current_user=""):
+        name = _parse_style_name(label)
         if not name:
             return "请选择要删除的风格", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
+        # Delete ALL profiles with this name (handles duplicates)
         profiles = store.list_all()
+        deleted_count = 0
         for p in profiles:
             if p.name == name:
                 store.delete(p.id)
-                new_names = get_style_names(current_user)
-                return f"已删除「{name}」", _refresh_styles(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
+                deleted_count += 1
+        if deleted_count:
+            new_names = get_style_names(current_user)
+            return f"已删除{deleted_count}个「{name}」", _refresh_styles(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
         return f"未找到「{name}」", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
 
-    def merge_styles(name_a, name_b, current_user=""):
+    def merge_styles(label_a, label_b, current_user=""):
+        name_a = _parse_style_name(label_a)
+        name_b = _parse_style_name(label_b)
         if not name_a or not name_b:
             return "请选择两个风格进行合并", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
         if name_a == name_b:
             return "请选择不同的风格", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
         profiles = store.list_all()
-        pa = next((p for p in profiles if p.name == name_a), None)
-        pb = next((p for p in profiles if p.name == name_b), None)
-        if not pa or not pb:
+        pa_list = [p for p in profiles if p.name == name_a]
+        pb_list = [p for p in profiles if p.name == name_b]
+        if not pa_list or not pb_list:
             return "未找到所选风格", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
+        pa, pb = pa_list[0], pb_list[0]
         merged_name = name_a.replace("面聊式", "").replace("式", "") + "式"
         store.merge(pa, pb, merged_name=merged_name)
         new_names = get_style_names(current_user)
