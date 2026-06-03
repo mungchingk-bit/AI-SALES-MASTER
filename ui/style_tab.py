@@ -58,20 +58,13 @@ def create_style_tab(user_dropdown=None) -> None:
         profiles = _filter_profiles_for_user(profiles, current_user)
         if not profiles:
             return "暂无风格档案，请上传销售对话文件来提取风格"
-        lines = []
+        lines = ["| 风格 | 语气基调 | 异议处理 | 成交风格 |", "|------|----------|----------|----------|"]
         for p in profiles:
             traits = p.extracted_traits
-            tone = traits.get("tone", "")
-            objection = traits.get("objection_strategy", "")
-            closing = traits.get("closing_style", "")
-            lines.append(f"**{p.name}**")
-            if tone:
-                lines.append(f"- 语气：{tone}")
-            if objection:
-                lines.append(f"- 异议处理：{objection}")
-            if closing:
-                lines.append(f"- 成交风格：{closing}")
-            lines.append("")
+            tone = traits.get("tone", "-")
+            objection = traits.get("objection_strategy", "-")
+            closing = traits.get("closing_style", "-")
+            lines.append(f"| **{p.name}** | {tone} | {objection} | {closing} |")
         return "\n".join(lines)
 
     def _get_user_name(user_dropdown_val):
@@ -590,7 +583,7 @@ def create_style_tab(user_dropdown=None) -> None:
         else "**云端API模式**：发送前自动脱敏"
     )
 
-    gr.Markdown("## 风格管理 v2")
+    gr.Markdown("## 风格管理")
     gr.Markdown(f"上传销售对话文件，AI将自动提取销售风格特征。最多支持4种风格。\n\n{provider_info}")
 
     with gr.Row():
