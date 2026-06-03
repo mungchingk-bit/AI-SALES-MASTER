@@ -38,6 +38,7 @@ def _dedup_styles(store):
 
 
 def create_style_tab(user_dropdown=None) -> None:
+    print("[STYLE_TAB] create_style_tab called - v2 code loaded")
     store = StyleStore()
     _dedup_styles(store)
 
