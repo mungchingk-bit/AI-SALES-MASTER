@@ -15,6 +15,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
 FAST_MODEL = os.getenv("FAST_MODEL", "")  # 快速模型用于训练对话，留空则用 OPENAI_MODEL
+EVAL_MODEL = os.getenv("EVAL_MODEL", "")  # 评估专用模型，留空则用 OPENAI_MODEL
 
 # Claude Configuration (海外云端模型)
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
@@ -53,6 +54,9 @@ EVAL_WEIGHTS = {
     "风格运用": 0.8,
     "收尾技巧": 1.0,
 }
+
+# Evaluation Dimensions (评估维度列表)
+EVAL_DIMENSIONS = ["沟通表达", "需求发掘", "价值主张", "异议处理", "流程完整", "关系建立", "风格运用", "收尾技巧"]
 
 # Dynamic Difficulty (动态难度)
 DIFFICULTY_THRESHOLD_EASY = 5.0

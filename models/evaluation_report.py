@@ -13,9 +13,12 @@ class EvaluationReport:
     style_alignment: dict | None = None
     specific_examples: list = field(default_factory=list)
     recommendation: str = ""
-    # 实战总结：对话复盘 + 问题诊断 + 校正建议 + 签单路径
     conversation_summary: str = ""
     deal_progression: dict = field(default_factory=dict)
+    is_corrected: bool = False
+    corrections: dict = field(default_factory=dict)
+    corrected_at: str | None = None
+    corrected_by: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -32,6 +35,10 @@ class EvaluationReport:
             "recommendation": self.recommendation,
             "conversation_summary": self.conversation_summary,
             "deal_progression": self.deal_progression,
+            "is_corrected": self.is_corrected,
+            "corrections": self.corrections,
+            "corrected_at": self.corrected_at,
+            "corrected_by": self.corrected_by,
             "created_at": self.created_at,
         }
 
@@ -49,5 +56,9 @@ class EvaluationReport:
             recommendation=data.get("recommendation", ""),
             conversation_summary=data.get("conversation_summary", ""),
             deal_progression=data.get("deal_progression", {}),
+            is_corrected=data.get("is_corrected", False),
+            corrections=data.get("corrections", {}),
+            corrected_at=data.get("corrected_at"),
+            corrected_by=data.get("corrected_by", ""),
             created_at=data.get("created_at", datetime.now().isoformat()),
         )

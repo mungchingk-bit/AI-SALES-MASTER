@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 
 from core.llm_client import get_client
 from models.evaluation_report import EvaluationReport
@@ -38,9 +39,11 @@ class Evaluator:
                 style_profile = style_profile_obj.to_dict()
 
         # Build evaluation prompt
+        correction_guide = self.evaluation_store.build_correction_guide(user=session.user)
         prompt = build_evaluation_prompt(
             session_data=session.to_dict(),
             style_profile=style_profile,
+            correction_guide=correction_guide,
         )
 
         # Call LLM for dimension scoring
@@ -49,7 +52,7 @@ class Evaluator:
             system_prompt=prompt,
             temperature=config.EVALUATION_TEMP,
             max_tokens=config.MAX_TOKENS_EVALUATION,
-            model=config.FAST_MODEL or None,
+            model=config.EVAL_MODEL or config.OPENAI_MODEL or None,
         )
 
         # Parse response
@@ -94,6 +97,41 @@ class Evaluator:
             return "会话不存在"
         return self._generate_conversation_summary(session)
 
+    def correct_report(self, report_id: str, corrections: dict, corrected_by: str = "") -> EvaluationReport | None:
+        """Apply manual corrections to an evaluation report."""
+        report = self.evaluation_store.load(report_id)
+        if not report:
+            return None
+
+        for dim_name, correction in corrections.items():
+            if dim_name in report.dimension_scores:
+                original = report.dimension_scores[dim_name]
+                report.corrections[dim_name] = {
+                    "original_score": original.get("score", 0),
+                    "corrected_score": correction["score"],
+                    "original_justification": original.get("justification", ""),
+                    "corrected_justification": correction["justification"],
+                }
+                report.dimension_scores[dim_name] = {
+                    "score": correction["score"],
+                    "justification": correction["justification"],
+                }
+
+        total_weight = 0
+        weighted_sum = 0
+        for dim_name, dim_data in report.dimension_scores.items():
+            score = dim_data.get("score", 0)
+            weight = config.EVAL_WEIGHTS.get(dim_name, 1.0)
+            weighted_sum += score * weight
+            total_weight += weight
+        report.overall_score = round(weighted_sum / total_weight, 1) if total_weight > 0 else 0
+
+        report.is_corrected = True
+        report.corrected_at = datetime.now().isoformat()
+        report.corrected_by = corrected_by
+        self.evaluation_store.save(report)
+        return report
+
     def _generate_conversation_summary(self, session: TrainingSession) -> str:
         """Generate the practical conversation summary."""
         prompt = build_conversation_summary_prompt(session_data=session.to_dict())
@@ -103,7 +141,7 @@ class Evaluator:
                 system_prompt=prompt,
                 temperature=0.4,
                 max_tokens=3000,
-                model=config.FAST_MODEL or None,
+                model=config.EVAL_MODEL or config.OPENAI_MODEL or None,
             )
             return response.strip()
         except Exception:
@@ -118,7 +156,7 @@ class Evaluator:
                 system_prompt=prompt,
                 temperature=0.3,
                 max_tokens=2048,
-                model=config.FAST_MODEL or None,
+                model=config.EVAL_MODEL or config.OPENAI_MODEL or None,
             )
             result = self._parse_json_response(response)
             return result if result else {}

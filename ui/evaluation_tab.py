@@ -6,6 +6,8 @@ import numpy as np
 matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
+import config
+
 # Lazy singletons
 _evaluator = None
 _eval_store = None
@@ -105,12 +107,18 @@ def create_evaluation_tab(user_dropdown=None) -> None:
 
     def _format_dimension_report(report):
         lines = [f"## 综合评分：{report.overall_score}/10\n"]
+        if report.is_corrected:
+            lines.append("*(已手动修正)*\n")
         lines.append("### 各维度评分\n")
         for dim, data in report.dimension_scores.items():
             score = data.get("score", 0)
             justification = data.get("justification", "")
             bar = "●" * score + "○" * (10 - score)
-            lines.append(f"**{dim}**：{bar} {score}/10")
+            corrected_mark = ""
+            if report.is_corrected and dim in report.corrections:
+                orig = report.corrections[dim].get("original_score", "")
+                corrected_mark = f" (原{orig}分→修正{score}分)"
+            lines.append(f"**{dim}**：{bar} {score}/10{corrected_mark}")
             lines.append(f"  {justification}\n")
         if report.strengths:
             lines.append("### 优势总结\n")
@@ -185,9 +193,10 @@ def create_evaluation_tab(user_dropdown=None) -> None:
 
     def generate_and_store_evaluation(session_choice):
         chart, report_text, summary_text, progression_text = generate_evaluation(session_choice)
-        # Build share checkboxes
+        # Build share checkboxes + populate correction modal
         section_choices = []
         section_defaults = []
+        correction_defaults = []
         if session_choice:
             session_id = session_choice.split("|")[-1].strip()
             sessions = session_store.list_all()
@@ -216,11 +225,19 @@ def create_evaluation_tab(user_dropdown=None) -> None:
                     if report.deal_progression:
                         section_choices.append("签单路径分析")
                         section_defaults.append("签单路径分析")
-                    return chart, report_text, summary_text, progression_text, report, gr.update(choices=section_choices, value=section_defaults)
-        return chart, report_text, summary_text, progression_text, None, gr.update(choices=[], value=[])
+                    # Populate correction sliders/textboxes from report
+                    for dim in config.EVAL_DIMENSIONS:
+                        data = report.dimension_scores.get(dim, {})
+                        correction_defaults.append(data.get("score", 5))
+                        correction_defaults.append(data.get("justification", ""))
+                    return chart, report_text, summary_text, progression_text, report, gr.update(choices=section_choices, value=section_defaults), *correction_defaults
+        # Empty correction defaults when no report
+        for dim in config.EVAL_DIMENSIONS:
+            correction_defaults.append(5)
+            correction_defaults.append("")
+        return chart, report_text, summary_text, progression_text, None, gr.update(choices=[], value=[]), *correction_defaults
 
     def _build_eval_selected_md(report, selected_items):
-        """根据勾选项构建评估报告 Markdown。"""
         if not report or not selected_items:
             return ""
         lines = ["# 训练评估报告\n"]
@@ -314,15 +331,44 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         from utils.share import generate_image
         return generate_image(md, title="训练评估报告")
 
-    def eval_share_link(report, selected_items):
+    def save_correction(report, *correction_values, current_user=""):
         if not report:
-            return "请先生成评估报告"
-        if not selected_items:
-            return "请勾选要分享的内容"
-        md = _build_eval_selected_md(report, selected_items)
-        from utils.share import generate_share_link
-        return generate_share_link(md, title="训练评估报告")
+            return None, "请先生成评估报告", "", "", None
+        corrections = {}
+        for i, dim in enumerate(config.EVAL_DIMENSIONS):
+            score = correction_values[i * 2]
+            justification = correction_values[i * 2 + 1]
+            corrections[dim] = {"score": int(score), "justification": justification}
+        corrected = _get_evaluator().correct_report(report.id, corrections, corrected_by=current_user)
+        if not corrected:
+            return None, "修正保存失败", "", "", None
+        chart = _generate_radar_chart(corrected)
+        report_text = _format_dimension_report(corrected)
+        summary_text = _format_summary(corrected)
+        progression_text = _format_deal_progression(corrected)
+        # Update share checkboxes
+        section_choices = []
+        section_defaults = []
+        if corrected.dimension_scores:
+            section_choices.append("各维度评分")
+            section_defaults.append("各维度评分")
+        if corrected.strengths:
+            section_choices.append("优势总结")
+            section_defaults.append("优势总结")
+        if corrected.improvements:
+            section_choices.append("改进建议")
+            section_defaults.append("改进建议")
+        if corrected.style_alignment:
+            section_choices.append("风格契合度")
+        if corrected.conversation_summary:
+            section_choices.append("实战总结")
+            section_defaults.append("实战总结")
+        if corrected.deal_progression:
+            section_choices.append("签单路径分析")
+            section_defaults.append("签单路径分析")
+        return chart, "✅ 修正已保存，未来评估将参考此标准", report_text, summary_text, progression_text, corrected, gr.update(choices=section_choices, value=section_defaults)
 
+    # --- UI Layout ---
     gr.Markdown("## 评估报告")
     gr.Markdown("选择已完成的训练记录，查看实战总结、评分和签单路径分析。")
 
@@ -340,8 +386,38 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             summary_display = gr.Markdown()
         with gr.Tab("维度评分"):
             report_display = gr.Markdown()
+            correct_btn = gr.Button("修正评分", size="sm")
         with gr.Tab("签单路径"):
             progression_display = gr.Markdown()
+
+    # --- Correction Modal ---
+    with gr.Modal(visible=False, title="修正评分") as correction_modal:
+        gr.Markdown("修改分数和评语后点击保存。修正数据将用于提升未来评估准确性。")
+        correction_components = []
+        for dim in config.EVAL_DIMENSIONS:
+            with gr.Row():
+                slider = gr.Slider(1, 10, step=1, value=5, label=f"{dim} 分数", scale=1)
+                textbox = gr.Textbox(label=f"{dim} 评语", lines=1, scale=3)
+                correction_components.append(slider)
+                correction_components.append(textbox)
+        save_correction_btn = gr.Button("保存修正", variant="primary")
+        correction_status = gr.Markdown("")
+
+    correct_btn.click(
+        fn=lambda: gr.update(visible=True),
+        inputs=[],
+        outputs=[correction_modal],
+    )
+
+    save_correction_btn.click(
+        fn=save_correction,
+        inputs=[current_eval_report] + correction_components + [user_dropdown or gr.State("")],
+        outputs=[radar_chart, correction_status, report_display, summary_display, progression_display, current_eval_report, eval_share_select],
+    ).then(
+        fn=lambda: gr.update(visible=False),
+        inputs=[],
+        outputs=[correction_modal],
+    )
 
     gr.Markdown("### 分享报告")
     eval_share_select = gr.CheckboxGroup(label="选择要分享的内容", choices=[], value=[])
@@ -359,7 +435,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
     eval_btn.click(
         fn=generate_and_store_evaluation,
         inputs=[session_dropdown],
-        outputs=[radar_chart, report_display, summary_display, progression_display, current_eval_report, eval_share_select],
+        outputs=[radar_chart, report_display, summary_display, progression_display, current_eval_report, eval_share_select] + correction_components,
     )
     refresh_sessions_btn.click(fn=refresh_sessions, inputs=[user_dropdown or gr.State("")], outputs=[session_dropdown])
     eval_share_copy_btn.click(fn=eval_share_copy, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_text_output])
