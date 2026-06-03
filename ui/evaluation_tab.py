@@ -386,38 +386,19 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             summary_display = gr.Markdown()
         with gr.Tab("维度评分"):
             report_display = gr.Markdown()
-            correct_btn = gr.Button("修正评分", size="sm")
+        with gr.Tab("修正评分"):
+            gr.Markdown("修改分数和评语后点击保存。修正数据将用于提升未来评估准确性。")
+            correction_components = []
+            for dim in config.EVAL_DIMENSIONS:
+                with gr.Row():
+                    slider = gr.Slider(1, 10, step=1, value=5, label=f"{dim} 分数", scale=1)
+                    textbox = gr.Textbox(label=f"{dim} 评语", lines=1, scale=3)
+                    correction_components.append(slider)
+                    correction_components.append(textbox)
+            save_correction_btn = gr.Button("保存修正", variant="primary")
+            correction_status = gr.Markdown("")
         with gr.Tab("签单路径"):
             progression_display = gr.Markdown()
-
-    # --- Correction Modal ---
-    with gr.Modal(visible=False, title="修正评分") as correction_modal:
-        gr.Markdown("修改分数和评语后点击保存。修正数据将用于提升未来评估准确性。")
-        correction_components = []
-        for dim in config.EVAL_DIMENSIONS:
-            with gr.Row():
-                slider = gr.Slider(1, 10, step=1, value=5, label=f"{dim} 分数", scale=1)
-                textbox = gr.Textbox(label=f"{dim} 评语", lines=1, scale=3)
-                correction_components.append(slider)
-                correction_components.append(textbox)
-        save_correction_btn = gr.Button("保存修正", variant="primary")
-        correction_status = gr.Markdown("")
-
-    correct_btn.click(
-        fn=lambda: gr.update(visible=True),
-        inputs=[],
-        outputs=[correction_modal],
-    )
-
-    save_correction_btn.click(
-        fn=save_correction,
-        inputs=[current_eval_report] + correction_components + [user_dropdown or gr.State("")],
-        outputs=[radar_chart, correction_status, report_display, summary_display, progression_display, current_eval_report, eval_share_select],
-    ).then(
-        fn=lambda: gr.update(visible=False),
-        inputs=[],
-        outputs=[correction_modal],
-    )
 
     gr.Markdown("### 分享报告")
     eval_share_select = gr.CheckboxGroup(label="选择要分享的内容", choices=[], value=[])
@@ -436,6 +417,11 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         fn=generate_and_store_evaluation,
         inputs=[session_dropdown],
         outputs=[radar_chart, report_display, summary_display, progression_display, current_eval_report, eval_share_select] + correction_components,
+    )
+    save_correction_btn.click(
+        fn=save_correction,
+        inputs=[current_eval_report] + correction_components + [user_dropdown or gr.State("")],
+        outputs=[radar_chart, correction_status, report_display, summary_display, progression_display, current_eval_report, eval_share_select],
     )
     refresh_sessions_btn.click(fn=refresh_sessions, inputs=[user_dropdown or gr.State("")], outputs=[session_dropdown])
     eval_share_copy_btn.click(fn=eval_share_copy, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_text_output])
