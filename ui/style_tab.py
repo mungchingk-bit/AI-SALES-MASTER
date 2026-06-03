@@ -8,35 +8,45 @@ from storage.style_store import StyleStore
 import config
 
 
-def create_style_tab() -> None:
+def create_style_tab(user_dropdown=None) -> None:
     store = StyleStore()
 
-    def get_style_names():
-        return [p.name for p in store.list_all()]
-
-    def _refresh_styles():
+    def get_style_names(current_user=""):
         profiles = store.list_all()
+        profiles = _filter_profiles_for_user(profiles, current_user)
+        return [p.name for p in profiles]
+
+    def _refresh_styles(current_user=""):
+        profiles = store.list_all()
+        profiles = _filter_profiles_for_user(profiles, current_user)
         if not profiles:
             return "暂无风格档案，请上传销售对话文件来提取风格"
-        lines = []
-        for i, p in enumerate(profiles):
+        lines = ["| 风格 | 语气基调 | 标志性用语 | 异议处理 | 成交风格 |", "|------|----------|-----------|----------|----------|"]
+        for p in profiles:
             traits = p.extracted_traits
-            confidence_count = sum(1 for v in p.confidence_scores.values() if v > 0.5)
-            total_count = len(p.confidence_scores) if p.confidence_scores else 7
-            lines.append(f"### 风格 {i+1}：{p.name}")
-            lines.append(f"- **来源**：{p.source_file or '未知'}")
-            lines.append(f"- **概述**：{p.description}")
-            lines.append(f"- **置信度**：{confidence_count}/{total_count} 维度高置信")
-            if traits.get("key_phrases"):
-                lines.append(f"- **标志性用语**：{', '.join(traits['key_phrases'][:5])}")
-            if traits.get("tone"):
-                lines.append(f"- **语气基调**：{traits['tone']}")
-            if traits.get("objection_strategy"):
-                lines.append(f"- **异议处理**：{traits['objection_strategy']}")
-            if traits.get("closing_style"):
-                lines.append(f"- **成交风格**：{traits['closing_style']}")
-            lines.append("")
+            tone = traits.get("tone", "-")
+            phrases = ", ".join(traits.get("key_phrases", [])[:3]) or "-"
+            objection = traits.get("objection_strategy", "-")
+            closing = traits.get("closing_style", "-")
+            if len(tone) > 20: tone = tone[:20] + "..."
+            if len(objection) > 20: objection = objection[:20] + "..."
+            if len(closing) > 20: closing = closing[:20] + "..."
+            lines.append(f"| **{p.name}** | {tone} | {phrases} | {objection} | {closing} |")
         return "\n".join(lines)
+
+    def _get_user_name(user_dropdown_val):
+        """Extract display name from user_dropdown value like '免免' or 'CC'."""
+        if not user_dropdown_val or not isinstance(user_dropdown_val, str):
+            return ""
+        return user_dropdown_val.strip()
+
+    def _filter_profiles_for_user(profiles, current_user):
+        """Filter profiles: user sees own styles + company styles; empty user sees all."""
+        if not current_user:
+            return profiles
+        user_key = current_user.replace("面聊", "")
+        company_styles = {"克拉时刻式", "栀夏式"}
+        return [p for p in profiles if user_key in p.name or p.name in company_styles]
 
     def preview_before_extract(file):
         from utils.file_parser import parse_file
@@ -599,34 +609,35 @@ def create_style_tab() -> None:
     extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input], outputs=[extract_result, styles_display])
     import_kb_btn.click(fn=import_from_knowledge_base, inputs=[], outputs=[import_kb_result, styles_display, report_dropdown])
 
-    def delete_style(name):
+    def delete_style(name, current_user=""):
         if not name:
-            return "请选择要删除的风格", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+            return "请选择要删除的风格", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
         profiles = store.list_all()
         for p in profiles:
             if p.name == name:
                 store.delete(p.id)
-                new_names = get_style_names()
-                return f"已删除「{name}」", _refresh_styles(), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
-        return f"未找到「{name}」", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+                new_names = get_style_names(current_user)
+                return f"已删除「{name}」", _refresh_styles(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
+        return f"未找到「{name}」", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
 
-    def merge_styles(name_a, name_b):
+    def merge_styles(name_a, name_b, current_user=""):
         if not name_a or not name_b:
-            return "请选择两个风格进行合并", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+            return "请选择两个风格进行合并", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
         if name_a == name_b:
-            return "请选择不同的风格", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+            return "请选择不同的风格", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
         profiles = store.list_all()
         pa = next((p for p in profiles if p.name == name_a), None)
         pb = next((p for p in profiles if p.name == name_b), None)
         if not pa or not pb:
-            return "未找到所选风格", _refresh_styles(), gr.update(choices=get_style_names()), gr.update(choices=get_style_names()), gr.update(choices=get_style_names())
+            return "未找到所选风格", _refresh_styles(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
         merged_name = name_a.replace("面聊式", "").replace("式", "") + "式"
         store.merge(pa, pb, merged_name=merged_name)
-        new_names = get_style_names()
-        return f"已合并为「{merged_name}」", _refresh_styles(), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
+        new_names = get_style_names(current_user)
+        return f"已合并为「{merged_name}」", _refresh_styles(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
 
-    delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
-    merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+    _user_state = user_dropdown or gr.State("")
+    delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown, _user_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+    merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b, _user_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
 
     compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
     view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown], outputs=[report_display, report_context, report_chatbot, share_select])
