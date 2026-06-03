@@ -63,18 +63,14 @@ def create_style_tab(user_dropdown=None) -> None:
             tone = traits.get("tone", "")
             objection = traits.get("objection_strategy", "")
             closing = traits.get("closing_style", "")
-            desc = p.description or ""
-            lines.append(f"### {p.name}")
+            lines.append(f"**{p.name}**")
             if tone:
                 lines.append(f"- 语气：{tone}")
             if objection:
                 lines.append(f"- 异议处理：{objection}")
             if closing:
                 lines.append(f"- 成交风格：{closing}")
-            if desc:
-                lines.append(f"- 概述：{desc}")
             lines.append("")
-        return "\n".join(lines)
         return "\n".join(lines)
 
     def _get_user_name(user_dropdown_val):
