@@ -6,7 +6,7 @@ from models.style_profile import StyleProfile
 
 
 def _merge_traits(traits_a: dict, traits_b: dict) -> dict:
-    """合并两个风格特征字典。列表字段合并去重，文本字段取更长者或拼接。"""
+    """合并两个风格特征字典。列表字段合并去重，文本字段取更长者。"""
     merged = {}
     list_keys = {"key_phrases", "avoid_patterns", "sample_dialogues"}
     for key in set(list(traits_a.keys()) + list(traits_b.keys())):
@@ -21,13 +21,7 @@ def _merge_traits(traits_a: dict, traits_b: dict) -> dict:
                     seen.add(item)
             merged[key] = combined
         elif isinstance(va, str) and isinstance(vb, str):
-            # 取更长的描述；如果都短就拼接
-            if len(va) >= len(vb) * 1.5:
-                merged[key] = va
-            elif len(vb) >= len(va) * 1.5:
-                merged[key] = vb
-            else:
-                merged[key] = f"{va}（线上话术）；{vb}（线下面聊）"
+            merged[key] = va if len(va) >= len(vb) else vb
         else:
             merged[key] = va or vb
     return merged
@@ -94,7 +88,7 @@ class StyleStore:
         """合并两个同销售的风格档案（话术+面聊）。"""
         merged = StyleProfile(
             name=merged_name or profile_a.name,
-            description=f"{profile_a.description}（线上话术）；{profile_b.description}（线下面聊）",
+            description=profile_a.description if len(profile_a.description or "") >= len(profile_b.description or "") else profile_b.description,
             source_file=f"{profile_a.source_file} + {profile_b.source_file}",
             extracted_traits=_merge_traits(profile_a.extracted_traits, profile_b.extracted_traits),
             confidence_scores=_merge_confidence(profile_a.confidence_scores, profile_b.confidence_scores),
