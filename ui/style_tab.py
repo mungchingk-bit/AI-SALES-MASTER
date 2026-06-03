@@ -589,7 +589,7 @@ def create_style_tab(user_dropdown=None) -> None:
         else "**云端API模式**：发送前自动脱敏"
     )
 
-    gr.Markdown("## 风格管理")
+    gr.Markdown("## 风格管理 v2")
     gr.Markdown(f"上传销售对话文件，AI将自动提取销售风格特征。最多支持4种风格。\n\n{provider_info}")
 
     with gr.Row():
