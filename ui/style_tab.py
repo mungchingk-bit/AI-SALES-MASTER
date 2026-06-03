@@ -8,12 +8,17 @@ from storage.style_store import StyleStore
 import config
 
 
+def _normalize_style_name(name):
+    """Normalize style name: CC话术库式 → CC式, 免免面聊式 → 免免式."""
+    return name.replace("话术库式", "式").replace("面聊式", "式").replace("面聊", "")
+
+
 def _dedup_styles(store):
     """Auto-merge duplicate-named styles, keeping one merged profile per name."""
     profiles = store.list_all()
     name_groups = {}
     for p in profiles:
-        key = p.name.replace("面聊式", "式")
+        key = _normalize_style_name(p.name)
         name_groups.setdefault(key, []).append(p)
     for key, group in name_groups.items():
         if len(group) <= 1:
@@ -52,16 +57,26 @@ def create_style_tab(user_dropdown=None) -> None:
         profiles = _filter_profiles_for_user(profiles, current_user)
         if not profiles:
             return "暂无风格档案，请上传销售对话文件来提取风格"
-        lines = ["| 风格 | 语气基调 | 异议处理 | 成交风格 |", "|------|----------|----------|----------|"]
+        lines = []
         for p in profiles:
             traits = p.extracted_traits
-            tone = traits.get("tone", "-")
-            objection = traits.get("objection_strategy", "-")
-            closing = traits.get("closing_style", "-")
-            if len(tone) > 15: tone = tone[:15] + "…"
-            if len(objection) > 15: objection = objection[:15] + "…"
-            if len(closing) > 15: closing = closing[:15] + "…"
-            lines.append(f"| **{p.name}** | {tone} | {objection} | {closing} |")
+            tone = traits.get("tone", "")
+            objection = traits.get("objection_strategy", "")
+            closing = traits.get("closing_style", "")
+            desc = p.description or ""
+            if len(desc) > 50:
+                desc = desc[:50] + "…"
+            lines.append(f"### {p.name}")
+            if tone:
+                lines.append(f"- 语气：{tone}")
+            if objection:
+                lines.append(f"- 异议处理：{objection}")
+            if closing:
+                lines.append(f"- 成交风格：{closing}")
+            if desc:
+                lines.append(f"- 概述：{desc}")
+            lines.append("")
+        return "\n".join(lines)
         return "\n".join(lines)
 
     def _get_user_name(user_dropdown_val):
@@ -143,7 +158,7 @@ def create_style_tab(user_dropdown=None) -> None:
         name_map = {}
         existing_sources = {}
         for p in existing:
-            key = p.name.replace("式", "").replace("面聊", "")
+            key = _normalize_style_name(p.name).replace("式", "")
             name_map[key] = p
             if key not in existing_sources:
                 existing_sources[key] = set()
