@@ -54,20 +54,46 @@ def create_style_tab(user_dropdown=None) -> None:
         return label
 
     def _refresh_styles_table(current_user=""):
+        """Generate HTML table with style names as columns, attributes as rows, sticky header."""
         profiles = store.list_all()
         profiles = _filter_profiles_for_user(profiles, current_user)
         if not profiles:
-            return []
-        rows = []
-        for p in profiles:
-            traits = p.extracted_traits
-            rows.append([
-                p.name,
-                traits.get("tone", "-"),
-                traits.get("objection_strategy", "-"),
-                traits.get("closing_style", "-"),
-            ])
-        return rows
+            return '<div style="color:#999;text-align:center;padding:20px;">暂无风格档案</div>'
+        style_names = [p.name for p in profiles]
+        attr_rows = [
+            ("tone", "语气基调"),
+            ("communication_pattern", "沟通模式"),
+            ("pacing", "节奏"),
+            ("objection_strategy", "异议处理"),
+            ("closing_style", "成交风格"),
+        ]
+        html_parts = ['<div style="max-height:400px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:8px;">']
+        html_parts.append('<table style="width:100%;border-collapse:collapse;font-size:14px;">')
+        # Sticky header row with style names
+        html_parts.append('<thead><tr style="background:#f5f5f5;">')
+        html_parts.append('<th style="position:sticky;top:0;z-index:2;background:#f5f5f5;padding:10px 12px;text-align:left;border-bottom:2px solid #ddd;min-width:80px;">属性</th>')
+        for name in style_names:
+            html_parts.append(
+                f'<th style="position:sticky;top:0;z-index:2;background:#f5f5f5;padding:10px 12px;text-align:left;'
+                f'border-bottom:2px solid #ddd;min-width:150px;font-weight:600;color:#2563eb;">{name}</th>'
+            )
+        html_parts.append('</tr></thead><tbody>')
+        for i, (attr_key, attr_label) in enumerate(attr_rows):
+            bg = '#fafafa' if i % 2 == 0 else '#fff'
+            html_parts.append(f'<tr style="background:{bg};">')
+            html_parts.append(
+                f'<td style="padding:10px 12px;font-weight:600;border-bottom:1px solid #eee;'
+                f'white-space:nowrap;vertical-align:top;color:#374151;">{attr_label}</td>'
+            )
+            for p in profiles:
+                val = p.extracted_traits.get(attr_key, "-")
+                html_parts.append(
+                    f'<td style="padding:10px 12px;border-bottom:1px solid #eee;'
+                    f'line-height:1.6;vertical-align:top;">{val}</td>'
+                )
+            html_parts.append('</tr>')
+        html_parts.append('</tbody></table></div>')
+        return ''.join(html_parts)
 
     def _get_user_name(user_dropdown_val):
         """Extract display name from user_dropdown value like '免免' or 'CC'."""
@@ -605,11 +631,8 @@ def create_style_tab(user_dropdown=None) -> None:
 
         with gr.Column(scale=1):
             gr.Markdown("### 我的风格档案")
-            styles_display = gr.Dataframe(
-                headers=["风格", "语气基调", "异议处理", "成交风格"],
+            styles_display = gr.HTML(
                 value=_refresh_styles_table(),
-                interactive=False,
-                label="我的风格档案",
             )
             with gr.Row():
                 delete_style_dropdown = gr.Dropdown(label="选择风格", choices=get_style_names(), scale=3)
