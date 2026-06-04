@@ -169,14 +169,19 @@ class OpenAICompatibleClient(BaseLLMClient):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        response = requests.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-            timeout=120,
-        )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        try:
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=120,
+            )
+            response.raise_for_status()
+        except requests.exceptions.Timeout:
+            return "请求超时，请稍后重试。"
+        result = response.json()
+        msg = result["choices"][0]["message"]
+        return msg.get("content") or msg.get("reasoning_content", "（无回复）")
 
     def chat_stream(
         self,
@@ -208,6 +213,7 @@ class OpenAICompatibleClient(BaseLLMClient):
             timeout=120,
         ) as response:
             response.raise_for_status()
+            in_reasoning = False
             for line in response.iter_lines():
                 if not line:
                     continue
@@ -219,8 +225,17 @@ class OpenAICompatibleClient(BaseLLMClient):
                     try:
                         data = json.loads(data_str)
                         delta = data.get("choices", [{}])[0].get("delta", {})
+                        reasoning = delta.get("reasoning_content", "")
                         content = delta.get("content", "")
+                        if reasoning:
+                            if not in_reasoning:
+                                in_reasoning = True
+                                yield "​🤔 思考中...\n\n"
+                            in_reasoning = True
                         if content:
+                            if in_reasoning:
+                                in_reasoning = False
+                                yield "\n---\n\n"
                             yield content
                     except json.JSONDecodeError:
                         continue
