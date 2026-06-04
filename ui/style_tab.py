@@ -106,7 +106,7 @@ def create_style_tab(user_dropdown=None) -> None:
         if not current_user:
             return profiles
         user_key = current_user.replace("面聊", "")
-        company_styles = {"克拉时刻式", "栀夏式"}
+        company_styles = {"栀夏式"}
         return [p for p in profiles if user_key in p.name or p.name in company_styles]
 
     def preview_before_extract(file):
