@@ -132,15 +132,17 @@ def create_style_tab(user_dropdown=None) -> None:
         except Exception as e:
             return f"预览失败：{str(e)}", ""
 
-    def upload_and_extract(file, style_name):
+    def upload_and_extract(file, style_name, progress=gr.Progress()):
         from utils.file_parser import parse_file
         from core.style_extractor import StyleExtractor
         if file is None:
             return "请上传文件", _refresh_styles_table()
         try:
+            progress(0.1, desc="解析文件中...")
             messages = parse_file(file.name)
             if not messages:
                 return "无法从文件中解析出对话记录，请检查文件格式", _refresh_styles_table()
+            progress(0.3, desc="AI正在提取风格特征...")
             extractor = StyleExtractor()
             profile = extractor.extract(messages, source_file=os.path.basename(file.name))
             if style_name and style_name.strip():
@@ -149,12 +151,13 @@ def create_style_tab(user_dropdown=None) -> None:
             if len(existing) >= config.MAX_STYLE_SLOTS:
                 return f"风格槽位已满（最多{config.MAX_STYLE_SLOTS}个），请先删除已有风格", _refresh_styles_table()
             store.save(profile)
+            progress(1.0, desc="完成")
             provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
             return f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}", _refresh_styles_table()
         except Exception as e:
             return f"提取失败：{str(e)}", _refresh_styles_table()
 
-    def import_from_knowledge_base():
+    def import_from_knowledge_base(progress=gr.Progress()):
         """从知识库中已导入的资料提取销售风格，同名销售自动合并，同时生成面聊汇报。"""
         import re
         from storage.knowledge_store import KnowledgeStore
@@ -183,6 +186,8 @@ def create_style_tab(user_dropdown=None) -> None:
 
         # 从话术库提取风格
         scripts = knowledge_store.list_by_category("script_library")
+        total_items = len(scripts) + len(knowledge_store.list_by_category("customer_doc"))
+        done = 0
         for entry in scripts:
             match = re.search(r"销售(\w+)", entry.title)
             if not match:
@@ -213,6 +218,8 @@ def create_style_tab(user_dropdown=None) -> None:
                     results.append(f"[成功] 风格「{profile.name}」: {profile.description}")
             except Exception as e:
                 results.append(f"[失败] {entry.title}: {str(e)}")
+            done += 1
+            progress(done / max(total_items, 1), desc=f"处理中 ({done}/{total_items})...")
 
         # 从面聊记录提取风格 + 生成汇报
         chats = knowledge_store.list_by_category("customer_doc")
@@ -264,10 +271,13 @@ def create_style_tab(user_dropdown=None) -> None:
                     results.append(f"[汇报失败] {entry.title}: {str(e)}")
             else:
                 results.append(f"[跳过] {entry.title}汇报已存在")
+            done += 1
+            progress(done / max(total_items, 1), desc=f"处理中 ({done}/{total_items})...")
 
+        progress(1.0, desc="导入完成")
         return "\n".join(results), _refresh_styles_table(), _refresh_report_choices()
 
-    def compare_styles(style_a_name, style_b_name):
+    def compare_styles(style_a_name, style_b_name, progress=gr.Progress()):
         from prompts.style_extraction import STYLE_COMPARISON_PROMPT
         from core.llm_client import get_client
         if not style_a_name or not style_b_name:
@@ -286,8 +296,10 @@ def create_style_tab(user_dropdown=None) -> None:
             style_b_traits=json.dumps(profile_b.extracted_traits, ensure_ascii=False, indent=2),
         )
         try:
+            progress(0.3, desc="AI正在对比分析...")
             client = get_client()
             result = client.chat(messages=[], system_prompt=prompt, temperature=config.EXTRACTION_TEMP, max_tokens=2048)
+            progress(1.0, desc="完成")
             return result
         except Exception as e:
             return f"对比失败：{str(e)}"

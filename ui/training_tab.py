@@ -402,7 +402,7 @@ def create_training_tab(user_dropdown=None):
             gr.update(visible=False, value=""),  # history_detail
         )
 
-    def end_training(session_id):
+    def end_training(session_id, progress=gr.Progress()):
         if not session_id:
             return ("没有进行中的训练", gr.update(interactive=True),
                     gr.update(visible=False, value=""),
@@ -419,14 +419,18 @@ def create_training_tab(user_dropdown=None):
         turn_count = len(session.conversation) // 2
         # Try to generate full evaluation, fall back to brief summary
         try:
+            progress(0.1, desc="正在生成实战总结...")
             summary = evaluator.generate_summary_only(session_id)
+            progress(0.4, desc="正在进行维度评分...")
             try:
                 full_report = evaluator.evaluate(session_id)
             except Exception:
                 full_report = None
+            progress(0.9, desc="整理报告...")
             summary_md = _format_session_summary(session, summary, full_report)
         except Exception:
             summary_md = _format_brief_summary(session)
+        progress(1.0, desc="完成")
         current_user = session.user or ""
         return (
             f"训练已结束！共{turn_count}轮对话。实战总结已生成，请查看下方。",
@@ -502,7 +506,7 @@ def create_training_tab(user_dropdown=None):
         detail = _build_history_detail(short_id, current_user)
         return gr.update(visible=True, value=detail)
 
-    def generate_full_summary(session_id):
+    def generate_full_summary(session_id, progress=gr.Progress()):
         """Generate full evaluation summary after the conversation ends.
         Only runs when the session is no longer active — skipped as no-op otherwise."""
         if not session_id:
@@ -514,15 +518,19 @@ def create_training_tab(user_dropdown=None):
         if session.status == "active":
             return gr.update(), gr.update()
         try:
+            progress(0.1, desc="正在生成实战总结...")
             evaluator = _get_evaluator()
             summary = evaluator.generate_summary_only(session_id)
+            progress(0.4, desc="正在进行维度评分...")
             try:
                 full_report = evaluator.evaluate(session_id)
             except Exception:
                 full_report = None
+            progress(0.9, desc="整理报告...")
             summary_md = _format_session_summary(session, summary, full_report)
         except Exception:
             summary_md = _format_brief_summary(session)
+        progress(1.0, desc="完成")
         current_user = session.user or ""
         return (
             gr.update(visible=True, value=summary_md),
