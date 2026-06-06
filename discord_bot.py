@@ -912,8 +912,8 @@ async def on_message(message):
         await message.channel.send("输入 `/` 查看所有命令！")
         return
 
-    # 处理文件附件 — 自动保存到文档库
-    if message.attachments:
+    # 处理文件附件 — 仅在 DM 或 @bot 时自动处理，避免误捕获频道里的普通图片
+    if message.attachments and (is_dm(message.channel) or bot.user.mentioned_in(message)):
         for attachment in message.attachments:
             ext = attachment.filename.lower().split(".")[-1]
             if ext not in config.SUPPORTED_FILE_EXTENSIONS:
