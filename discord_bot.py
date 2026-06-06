@@ -562,8 +562,64 @@ async def slash_styles(interaction: discord.Interaction):
         await interaction.response.send_message("暂无销售风格。可在网页版「风格管理」中提取。")
 
 
+class DocSelectView(discord.ui.View):
+    """下拉菜单选择文档，点选即可打开讨论。"""
+
+    def __init__(self, docs: list, user_id: int, is_admin_flag: bool):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+        self.is_admin = is_admin_flag
+
+        options = []
+        for d in docs[:25]:  # Discord 最多 25 个选项
+            summary_preview = (d.summary[:60] + "...") if len(d.summary) > 60 else d.summary
+            options.append(discord.SelectOption(
+                label=f"#{d.number} {d.filename}",
+                description=summary_preview,
+                value=str(d.number),
+            ))
+
+        self.select = discord.ui.Select(
+            placeholder="选择文档查看...",
+            options=options,
+        )
+        self.select.callback = self._on_select
+        self.add_item(self.select)
+
+    async def _on_select(self, interaction: discord.Interaction):
+        if not is_allowed_user(interaction.user.id):
+            await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
+            return
+
+        number = int(self.select.values[0])
+        doc_entry = doc_store.get(number)
+        if not doc_entry:
+            await interaction.response.send_message(f"❌ 文档 #{number} 不存在。", ephemeral=True)
+            return
+
+        if not can_access_doc(doc_entry, interaction.user.id):
+            await interaction.response.send_message(f"❌ 你没有权限查看文档 #{number}。", ephemeral=True)
+            return
+
+        active_doc_sessions[interaction.channel_id] = number
+        if interaction.channel_id in active_sessions:
+            del active_sessions[interaction.channel_id]
+        if interaction.channel_id in active_report_sessions:
+            del active_report_sessions[interaction.channel_id]
+
+        summary_preview = doc_entry.summary[:1000]
+        conv_count = len(doc_entry.conversation) // 2
+        embed = discord.Embed(
+            title=f"📄 文档 #{number}：{doc_entry.filename}",
+            description=f"**类型**：{doc_entry.file_type}\n**上传时间**：{doc_entry.created_at[:10]}\n**历史对话**：{conv_count}轮\n\n{summary_preview}\n\n你可以直接提问关于这份文档的内容。用 `/stop` 结束讨论。",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed)
+
+
 @bot.tree.command(name="files", description="查看你上传过的文档列表")
-async def slash_files(interaction: discord.Interaction):
+@discord.app_commands.describe(search="按文件名关键词筛选（可选）")
+async def slash_files(interaction: discord.Interaction, search: str = None):
     if not is_allowed_user(interaction.user.id):
         await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
         return
@@ -573,15 +629,25 @@ async def slash_files(interaction: discord.Interaction):
         await interaction.response.send_message("📭 暂无文档。直接发送文件附件即可上传。")
         return
 
+    # 按关键词筛选
+    if search:
+        search_lower = search.lower()
+        docs = [d for d in docs if search_lower in d.filename.lower() or search_lower in d.summary.lower()]
+        if not docs:
+            await interaction.response.send_message(f"📭 没有匹配「{search}」的文档。")
+            return
+
     lines = ["📑 **文档列表**：\n"]
     for d in docs:
-        owner = "" if is_admin(interaction.user.id) else ""
+        owner = ""
         if is_admin(interaction.user.id):
             owner = f" | 上传者：{d.uploader_name or d.uploader_id}" if d.uploader_id != str(interaction.user.id) else ""
-        lines.append(f"**#{d.number}** {d.filename} ({d.file_type}){owner} — {d.created_at[:10]}")
+        summary_brief = (d.summary[:40] + "...") if len(d.summary) > 40 else d.summary
+        lines.append(f"**#{d.number}** {d.filename} ({d.file_type}){owner} — {d.created_at[:10]}\n　{summary_brief}")
 
-    lines.append("\n`/doc 编号` 查看讨论 | `/start doc:编号` 基于文档训练 | `/del 编号` 删除")
-    await interaction.response.send_message("\n".join(lines))
+    lines.append("\n👇 也可以在下方下拉菜单直接选择文档")
+    view = DocSelectView(docs, interaction.user.id, is_admin(interaction.user.id))
+    await interaction.response.send_message("\n".join(lines), view=view)
 
 
 @bot.tree.command(name="doc", description="查看并讨论指定编号的文档")

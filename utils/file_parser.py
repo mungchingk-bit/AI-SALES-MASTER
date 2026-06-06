@@ -4,7 +4,48 @@ import logging
 import os
 import re
 
+from charset_normalizer import from_bytes
 from models.chat_message import ChatMessage
+
+
+def _detect_encoding(file_path: str) -> tuple[str, str]:
+    """Read file as bytes, detect encoding. Returns (encoding, decoded_text)."""
+    with open(file_path, "rb") as f:
+        raw = f.read()
+
+    if not raw:
+        return "utf-8", ""
+
+    # Check BOM first
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return "utf-8-sig", raw[3:].decode("utf-8", errors="replace")
+    if raw.startswith(b"\xff\xfe"):
+        return "utf-16-le", raw[2:].decode("utf-16-le", errors="replace")
+    if raw.startswith(b"\xfe\xff"):
+        return "utf-16-be", raw[2:].decode("utf-16-be", errors="replace")
+
+    # Try UTF-8 first (most common)
+    try:
+        text = raw.decode("utf-8")
+        return "utf-8", text
+    except UnicodeDecodeError:
+        pass
+
+    # Auto-detect via charset-normalizer
+    result = from_bytes(raw)
+    if result and result.best():
+        best = result.best()
+        return best.encoding, str(best)
+
+    # Fallback: try common CJK encodings
+    for enc in ["gbk", "gb18030", "big5", "shift_jis", "euc-jp", "euc-kr"]:
+        try:
+            text = raw.decode(enc)
+            return enc, text
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    return "utf-8", raw.decode("utf-8", errors="replace")
 
 
 def parse_file(file_path: str) -> list[ChatMessage]:
@@ -40,15 +81,16 @@ def extract_text(file_path: str) -> str:
     elif ext in ("jpg", "jpeg", "png"):
         return _extract_image_text(file_path)
     else:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
+        encoding, text = _detect_encoding(file_path)
+        logging.info(f"Detected encoding for {os.path.basename(file_path)}: {encoding}")
+        return text
 
 
 def _parse_txt(file_path: str) -> list[ChatMessage]:
     """Parse a text file with '销售：/客户：' prefixed lines."""
     messages = []
-    with open(file_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+    _, text = _detect_encoding(file_path)
+    lines = text.splitlines()
 
     current_speaker = None
     current_content = []
@@ -87,7 +129,8 @@ def _parse_txt(file_path: str) -> list[ChatMessage]:
 
 def _parse_csv(file_path: str) -> list[ChatMessage]:
     messages = []
-    with open(file_path, "r", encoding="utf-8") as f:
+    encoding, _ = _detect_encoding(file_path)
+    with open(file_path, "r", encoding=encoding, errors="replace") as f:
         reader = csv.DictReader(f)
         for row in reader:
             speaker = row.get("speaker", "").strip()
@@ -99,8 +142,8 @@ def _parse_csv(file_path: str) -> list[ChatMessage]:
 
 def _parse_json(file_path: str) -> list[ChatMessage]:
     messages = []
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    encoding, text = _detect_encoding(file_path)
+    data = json.loads(text)
     if isinstance(data, list):
         for item in data:
             role = item.get("role", "")
