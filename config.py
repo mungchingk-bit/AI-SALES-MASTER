@@ -74,9 +74,8 @@ OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "minicpm-v")
 SUPPORTED_FILE_EXTENSIONS = {
     "docx", "doc", "pdf", "xlsx", "xls",
     "pptx", "ppt", "txt", "csv", "json",
+    "jpg", "jpeg", "png",
 }
-# 图片仅在被明确要求时处理，不自动捕获
-IMAGE_EXTENSIONS = {"jpg", "jpeg", "png"}
 
 # Data Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
