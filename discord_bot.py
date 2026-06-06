@@ -621,13 +621,15 @@ class DocSelectView(discord.ui.View):
 
 
 @bot.tree.command(name="files", description="查看你上传过的文档列表")
-@discord.app_commands.describe(search="按文件名关键词筛选（可选）")
-async def slash_files(interaction: discord.Interaction, search: str = None):
+@discord.app_commands.describe(search="按文件名关键词筛选（可选）", mine="只看我上传的（可选）")
+async def slash_files(interaction: discord.Interaction, search: str = None, mine: bool = None):
     if not is_allowed_user(interaction.user.id):
         await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
         return
 
-    docs = doc_store.list_by_user(interaction.user.id, is_admin=is_admin(interaction.user.id))
+    # mine=True 或非admin用户只看自己的
+    show_all = is_admin(interaction.user.id) and not mine
+    docs = doc_store.list_by_user(interaction.user.id, is_admin=show_all)
     if not docs:
         await interaction.response.send_message("📭 暂无文档。直接发送文件附件即可上传。")
         return
@@ -643,13 +645,17 @@ async def slash_files(interaction: discord.Interaction, search: str = None):
     lines = ["📑 **文档列表**：\n"]
     for d in docs:
         owner = ""
-        if is_admin(interaction.user.id):
-            owner = f" | 上传者：{d.uploader_name or d.uploader_id}" if d.uploader_id != str(interaction.user.id) else ""
-        summary_brief = (d.summary[:40] + "...") if len(d.summary) > 40 else d.summary
+        if show_all and d.uploader_id != str(interaction.user.id):
+            owner = f" | 👤{d.uploader_name or d.uploader_id}"
+        # 摘要失败时用文件类型和大小代替
+        if d.summary and not d.summary.startswith("摘要生成失败"):
+            summary_brief = (d.summary[:40] + "...") if len(d.summary) > 40 else d.summary
+        else:
+            summary_brief = f"({d.file_type})"
         lines.append(f"**#{d.number}** {d.filename} ({d.file_type}){owner} — {d.created_at[:10]}\n　{summary_brief}")
 
     lines.append("\n👇 也可以在下方下拉菜单直接选择文档")
-    view = DocSelectView(docs, interaction.user.id, is_admin(interaction.user.id))
+    view = DocSelectView(docs, interaction.user.id, is_admin=show_all)
     await interaction.response.send_message("\n".join(lines), view=view)
 
 
