@@ -159,7 +159,7 @@ async def slash_start(interaction: discord.Interaction, difficulty: str = None, 
         if not can_access_doc(doc_entry, interaction.user.id):
             await interaction.response.send_message(f"❌ 你没有权限查看文档 {doc}。")
             return
-        doc_info = f"\n**参考文档**：#{doc} {doc_entry.filename}"
+        doc_info = f"\n**参考文档**：#D{doc} {doc_entry.filename}"
         scenario["custom_notes"] = scenario.get("custom_notes", "") + f"\n\n参考文档内容：\n{doc_entry.content[:3000]}"
 
     session = manager.create_session(
@@ -563,23 +563,23 @@ async def slash_styles(interaction: discord.Interaction):
 
 
 class DocSelectView(discord.ui.View):
-    """下拉菜单选择文档，点选即可打开讨论。"""
+    """下拉菜单选择文档/知识库条目，点选即可打开讨论。"""
 
-    def __init__(self, docs: list, user_id: int, is_admin_flag: bool):
+    def __init__(self, items: list, user_id: int, is_admin_flag: bool):
         super().__init__(timeout=120)
         self.user_id = user_id
         self.is_admin = is_admin_flag
 
         options = []
-        for d in docs[:25]:  # Discord 最多 25 个选项
-            label = f"#{d.number} {d.filename}"
+        for item in items[:25]:  # Discord 最多 25 个选项
+            label = item["label"]
             if len(label) > 100:
                 label = label[:97] + "..."
-            summary_preview = (d.summary[:60] + "...") if len(d.summary) > 60 else d.summary
+            desc = item.get("description", "")[:100]
             options.append(discord.SelectOption(
                 label=label,
-                description=summary_preview,
-                value=str(d.number),
+                description=desc,
+                value=item["value"],
             ))
 
         self.select = discord.ui.Select(
@@ -594,42 +594,105 @@ class DocSelectView(discord.ui.View):
             await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
             return
 
-        number = int(self.select.values[0])
-        doc_entry = doc_store.get(number)
-        if not doc_entry:
-            await interaction.response.send_message(f"❌ 文档 #{number} 不存在。", ephemeral=True)
-            return
+        selected = self.select.values[0]  # e.g. "D3" or "K5"
 
-        if not can_access_doc(doc_entry, interaction.user.id):
-            await interaction.response.send_message(f"❌ 你没有权限查看文档 #{number}。", ephemeral=True)
-            return
+        if selected.startswith("K"):
+            # 知识库条目
+            kid = selected[1:]
+            entry = knowledge_store.load(kid)
+            if not entry:
+                await interaction.response.send_message(f"❌ 知识库条目不存在。", ephemeral=True)
+                return
+            active_doc_sessions[interaction.channel_id] = selected
+            if interaction.channel_id in active_sessions:
+                del active_sessions[interaction.channel_id]
+            if interaction.channel_id in active_report_sessions:
+                del active_report_sessions[interaction.channel_id]
 
-        active_doc_sessions[interaction.channel_id] = number
-        if interaction.channel_id in active_sessions:
-            del active_sessions[interaction.channel_id]
-        if interaction.channel_id in active_report_sessions:
-            del active_report_sessions[interaction.channel_id]
+            cat_labels = {"customer_doc": "面聊记录", "script_library": "话术库", "company_profile": "公司简介", "banquet_type": "宴会场景"}
+            cat_label = cat_labels.get(entry.category, entry.category)
+            content_preview = entry.content[:1000]
+            embed = discord.Embed(
+                title=f"📄 {cat_label}：{entry.title}",
+                description=f"**类型**：{cat_label}\n**来源**：{entry.source_file or '-'}\n**日期**：{entry.created_at[:10]}\n\n{content_preview}\n\n你可以直接提问。用 `/stop` 结束讨论。",
+                color=discord.Color.green()
+            )
+            await interaction.response.send_message(embed=embed)
+        else:
+            # 文档库条目
+            number = int(selected[1:])
+            doc_entry = doc_store.get(number)
+            if not doc_entry:
+                await interaction.response.send_message(f"❌ 文档 #{number} 不存在。", ephemeral=True)
+                return
+            if not can_access_doc(doc_entry, interaction.user.id):
+                await interaction.response.send_message(f"❌ 你没有权限查看文档 #{number}。", ephemeral=True)
+                return
 
-        summary_preview = doc_entry.summary[:1000]
-        conv_count = len(doc_entry.conversation) // 2
-        embed = discord.Embed(
-            title=f"📄 文档 #{number}：{doc_entry.filename}",
-            description=f"**类型**：{doc_entry.file_type}\n**上传时间**：{doc_entry.created_at[:10]}\n**历史对话**：{conv_count}轮\n\n{summary_preview}\n\n你可以直接提问关于这份文档的内容。用 `/stop` 结束讨论。",
-            color=discord.Color.green()
-        )
-        await interaction.response.send_message(embed=embed)
+            active_doc_sessions[interaction.channel_id] = selected
+            if interaction.channel_id in active_sessions:
+                del active_sessions[interaction.channel_id]
+            if interaction.channel_id in active_report_sessions:
+                del active_report_sessions[interaction.channel_id]
+
+            summary_preview = doc_entry.summary[:1000]
+            conv_count = len(doc_entry.conversation) // 2
+            embed = discord.Embed(
+                title=f"📄 文档 #{number}：{doc_entry.filename}",
+                description=f"**类型**：{doc_entry.file_type}\n**上传时间**：{doc_entry.created_at[:10]}\n**历史对话**：{conv_count}轮\n\n{summary_preview}\n\n你可以直接提问。用 `/stop` 结束讨论。",
+                color=discord.Color.green()
+            )
+            await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name="files", description="查看你上传过的文档列表")
-@discord.app_commands.describe(search="按文件名关键词筛选（可选）", mine="只看我上传的（可选）")
+@bot.tree.command(name="files", description="查看所有文档和资料")
+@discord.app_commands.describe(search="按关键词筛选（可选）", mine="只看我自己的（可选）")
 async def slash_files(interaction: discord.Interaction, search: str = None, mine: bool = None):
     if not is_allowed_user(interaction.user.id):
         await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
         return
 
-    # mine=True 或非admin用户只看自己的
-    show_all = is_admin(interaction.user.id) and not mine
+    admin = is_admin(interaction.user.id)
+    show_all = admin and not mine
+    user_name = interaction.user.display_name
+
+    # 获取文档列表
     docs = doc_store.list_by_user(interaction.user.id, is_admin=show_all)
+    # 获取知识库列表
+    k_entries = knowledge_store.list_by_user(user_name, is_admin=show_all)
+
+    # 按关键词筛选
+    if search:
+        sl = search.lower()
+        docs = [d for d in docs if sl in d.filename.lower() or sl in d.summary.lower()]
+        k_entries = [e for e in k_entries if sl in e.title.lower() or sl in e.content.lower() or sl in e.source_file.lower()]
+
+    if not docs and not k_entries:
+        await interaction.response.send_message("📭 暂无文档。直接发送文件附件即可上传。")
+        return
+
+    cat_labels = {"customer_doc": "面聊记录", "script_library": "话术库", "company_profile": "公司简介", "banquet_type": "宴会场景"}
+    lines = ["📑 **文档列表**：\n"]
+    select_items = []
+
+    for d in docs:
+        owner = f" | 👤{d.uploader_name}" if show_all and d.uploader_id != str(interaction.user.id) and d.uploader_name else ""
+        summary_brief = (d.summary[:40] + "...") if d.summary and not d.summary.startswith("摘要生成失败") and len(d.summary) > 40 else (d.summary[:40] if d.summary and not d.summary.startswith("摘要生成失败") else "")
+        lines.append(f"**#D{d.number}** {d.filename} ({d.file_type}){owner} — {d.created_at[:10]}")
+        if summary_brief:
+            lines.append(f"　{summary_brief}")
+        select_items.append({"label": f"#D{d.number} {d.filename}", "description": summary_brief or d.file_type, "value": f"D{d.number}"})
+
+    for i, e in enumerate(k_entries, 1):
+        cat_label = cat_labels.get(e.category, e.category)
+        owner = f" | 👤{e.uploader_name}" if show_all and e.uploader_name and e.uploader_name != user_name else ""
+        lines.append(f"**#K{i}** {e.title} ({cat_label}){owner} — {e.created_at[:10]}")
+        content_brief = (e.content[:40] + "...") if len(e.content) > 40 else e.content[:40]
+        select_items.append({"label": f"#K{i} {e.title}", "description": f"{cat_label} - {content_brief}", "value": f"K{e.id}"})
+
+    lines.append("\n👇 也可以在下方下拉菜单直接选择")
+    view = DocSelectView(select_items, interaction.user.id, is_admin_flag=show_all)
+    await interaction.response.send_message("\n".join(lines), view=view)
     if not docs:
         await interaction.response.send_message("📭 暂无文档。直接发送文件附件即可上传。")
         return
@@ -660,38 +723,80 @@ async def slash_files(interaction: discord.Interaction, search: str = None, mine
 
 
 @bot.tree.command(name="doc", description="查看并讨论指定编号的文档")
-@discord.app_commands.describe(number="文档编号")
-async def slash_doc(interaction: discord.Interaction, number: int):
+@discord.app_commands.describe(key="文档编号，如 D1 或 K1（用 /files 查看列表）")
+async def slash_doc(interaction: discord.Interaction, key: str):
     if not is_allowed_user(interaction.user.id):
         await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
         return
 
-    doc_entry = doc_store.get(number)
-    if not doc_entry:
-        await interaction.response.send_message(f"❌ 文档 #{number} 不存在。用 `/files` 查看列表。")
-        return
+    key = key.strip().lstrip("#")
 
-    if not can_access_doc(doc_entry, interaction.user.id):
-        await interaction.response.send_message(f"❌ 你没有权限查看文档 #{number}。")
-        return
+    if key.upper().startswith("K"):
+        # 知识库条目
+        kid = key[1:]
+        # 如果是数字索引，按 /files 列表顺序查找
+        if kid.isdigit():
+            admin = is_admin(interaction.user.id)
+            entries = knowledge_store.list_by_user(interaction.user.display_name, is_admin=admin)
+            idx = int(kid) - 1
+            if idx < 0 or idx >= len(entries):
+                await interaction.response.send_message(f"❌ 编号 #K{kid} 不存在。用 `/files` 查看列表。")
+                return
+            entry = entries[idx]
+            kid = entry.id
+        else:
+            entry = knowledge_store.load(kid)
+            if not entry:
+                await interaction.response.send_message(f"❌ 知识库条目不存在。用 `/files` 查看列表。")
+                return
 
-    # 设置当前频道讨论该文档
-    active_doc_sessions[interaction.channel_id] = number
+        active_doc_sessions[interaction.channel_id] = f"K{kid}"
+        if interaction.channel_id in active_sessions:
+            del active_sessions[interaction.channel_id]
+        if interaction.channel_id in active_report_sessions:
+            del active_report_sessions[interaction.channel_id]
 
-    # 结束其他会话
-    if interaction.channel_id in active_sessions:
-        del active_sessions[interaction.channel_id]
-    if interaction.channel_id in active_report_sessions:
-        del active_report_sessions[interaction.channel_id]
+        cat_labels = {"customer_doc": "面聊记录", "script_library": "话术库", "company_profile": "公司简介", "banquet_type": "宴会场景"}
+        cat_label = cat_labels.get(entry.category, entry.category)
+        content_preview = entry.content[:1000]
+        embed = discord.Embed(
+            title=f"📄 {cat_label}：{entry.title}",
+            description=f"**类型**：{cat_label}\n**来源**：{entry.source_file or '-'}\n**日期**：{entry.created_at[:10]}\n\n{content_preview}\n\n你可以直接提问。用 `/stop` 结束讨论。",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed)
+    elif key.upper().startswith("D") or key.isdigit():
+        # 文档库条目
+        num_str = key[1:] if key.upper().startswith("D") else key
+        if not num_str.isdigit():
+            await interaction.response.send_message(f"❌ 无效编号。用 `/files` 查看列表。")
+            return
+        number = int(num_str)
 
-    summary_preview = doc_entry.summary[:1000]
-    conv_count = len(doc_entry.conversation) // 2
-    embed = discord.Embed(
-        title=f"📄 文档 #{number}：{doc_entry.filename}",
-        description=f"**类型**：{doc_entry.file_type}\n**上传时间**：{doc_entry.created_at[:10]}\n**历史对话**：{conv_count}轮\n\n{summary_preview}\n\n你可以直接提问关于这份文档的内容。用 `/stop` 结束讨论。",
-        color=discord.Color.green()
-    )
-    await interaction.response.send_message(embed=embed)
+        doc_entry = doc_store.get(number)
+        if not doc_entry:
+            await interaction.response.send_message(f"❌ 文档 #D{number} 不存在。用 `/files` 查看列表。")
+            return
+        if not can_access_doc(doc_entry, interaction.user.id):
+            await interaction.response.send_message(f"❌ 你没有权限查看文档 #D{number}。")
+            return
+
+        active_doc_sessions[interaction.channel_id] = f"D{number}"
+        if interaction.channel_id in active_sessions:
+            del active_sessions[interaction.channel_id]
+        if interaction.channel_id in active_report_sessions:
+            del active_report_sessions[interaction.channel_id]
+
+        summary_preview = doc_entry.summary[:1000]
+        conv_count = len(doc_entry.conversation) // 2
+        embed = discord.Embed(
+            title=f"📄 文档 #D{number}：{doc_entry.filename}",
+            description=f"**类型**：{doc_entry.file_type}\n**上传时间**：{doc_entry.created_at[:10]}\n**历史对话**：{conv_count}轮\n\n{summary_preview}\n\n你可以直接提问关于这份文档的内容。用 `/stop` 结束讨论。",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed)
+    else:
+        await interaction.response.send_message(f"❌ 无效编号「{key}」。格式：D1（文档）或 K1（知识库）。用 `/files` 查看列表。")
 
 
 @bot.tree.command(name="del", description="删除指定编号的文档")
@@ -790,25 +895,6 @@ async def slash_report(interaction: discord.Interaction, number: int):
     await interaction.channel.send("💬 你可以直接提问关于这次面聊的内容，AI教练会基于报告回答你。用 `/stop` 结束讨论。")
 
 
-@bot.tree.command(name="knowledge", description="查看知识库中的面聊记录")
-async def slash_knowledge(interaction: discord.Interaction):
-    if not is_allowed_user(interaction.user.id):
-        await interaction.response.send_message("❌ 你没有使用权限。", ephemeral=True)
-        return
-
-    entries = knowledge_store.list_by_category("customer_doc")
-    if not entries:
-        await interaction.response.send_message("📭 暂无面聊记录。可在网页版导入或运行 `scripts/import_knowledge.py`。")
-        return
-
-    lines = ["🎙️ **线下面聊记录**：\n"]
-    for i, e in enumerate(entries, 1):
-        lines.append(f"**#{i}** {e.title} — {e.created_at[:10]}")
-
-    lines.append("\n`/report number:编号` 查看对应分析报告")
-    await interaction.response.send_message("\n".join(lines))
-
-
 @bot.tree.command(name="weekly", description="生成本周训练复盘报告")
 async def slash_weekly(interaction: discord.Interaction):
     if not is_allowed_user(interaction.user.id):
@@ -879,15 +965,15 @@ async def slash_help(interaction: discord.Interaction):
             "/evaluate — 查看最近一次训练的评估报告\n"
             "/evaluate number:编号 — 查看指定训练的评估报告\n"
             "/history — 查看过往训练记录\n\n"
-            "**文档**\n"
-            "/files — 查看文档列表\n"
-            "/doc number:编号 — 查看/讨论文档\n"
+            "**文档与资料**\n"
+            "/files — 查看所有文档和资料\n"
+            "/files search:关键词 — 搜索文档\n"
+            "/doc key:D1/K1 — 查看/讨论文档\n"
             "/del number:编号 — 删除文档\n"
             "💡 直接发送文件附件即可上传\n\n"
-            "**面聊记录**\n"
+            "**面聊报告**\n"
             "/reports — 查看面聊分析报告列表\n"
-            "/report number:编号 — 查看报告并讨论\n"
-            "/knowledge — 查看原始面聊记录\n\n"
+            "/report number:编号 — 查看报告并讨论\n\n"
             "**风格**\n"
             "/styles — 查看可选风格\n\n"
             "**复盘**\n"
@@ -975,7 +1061,7 @@ async def on_message(message):
                     )
 
                     # 设置为当前讨论文档
-                    active_doc_sessions[message.channel.id] = doc_entry.number
+                    active_doc_sessions[message.channel.id] = f"D{doc_entry.number}"
                     if message.channel.id in active_sessions:
                         del active_sessions[message.channel.id]
                     if message.channel.id in active_report_sessions:
@@ -983,7 +1069,7 @@ async def on_message(message):
 
                     summary_preview = summary[:1000]
                     embed = discord.Embed(
-                        title=f"📄 文档已保存为 #{doc_entry.number}",
+                        title=f"📄 文档已保存为 #D{doc_entry.number}",
                         description=f"**文件名**：{attachment.filename}\n**类型**：{file_type_label}\n\n{summary_preview}\n\n你可以直接提问。用 `/files` 查看所有文档。",
                         color=discord.Color.green()
                     )
@@ -1001,34 +1087,67 @@ async def on_message(message):
 
     # 文档讨论 Q&A
     if message.channel.id in active_doc_sessions and not message.content.startswith("/"):
-        doc_number = active_doc_sessions[message.channel.id]
-        doc_entry = doc_store.get(doc_number)
-        if doc_entry and can_access_doc(doc_entry, message.author.id):
-            async with message.channel.typing():
-                try:
-                    client = get_client()
-                    system_prompt = FILE_DISCUSSION_SYSTEM_PROMPT.format(
-                        filename=doc_entry.filename, file_type=doc_entry.file_type,
-                        file_summary=doc_entry.summary, file_content=doc_entry.content,
-                    )
-                    messages = [
-                        {"role": "user" if i % 2 == 0 else "assistant", "content": msg}
-                        for i, msg in enumerate(doc_entry.conversation[-6:])
-                    ]
-                    messages.append({"role": "user", "content": message.content})
+        doc_key = active_doc_sessions[message.channel.id]
 
-                    def _call_llm():
-                        return client.chat(
-                            messages=messages, system_prompt=system_prompt,
-                            temperature=0.5, max_tokens=2048,
+        if isinstance(doc_key, str) and doc_key.startswith("K"):
+            # 知识库条目讨论
+            kid = doc_key[1:]
+            entry = knowledge_store.load(kid)
+            if entry:
+                async with message.channel.typing():
+                    try:
+                        client = get_client()
+                        cat_labels = {"customer_doc": "面聊记录", "script_library": "话术库", "company_profile": "公司简介", "banquet_type": "宴会场景"}
+                        cat_label = cat_labels.get(entry.category, entry.category)
+                        system_prompt = FILE_DISCUSSION_SYSTEM_PROMPT.format(
+                            filename=entry.title, file_type=cat_label,
+                            file_summary=entry.content[:500], file_content=entry.content,
                         )
+                        messages = [{"role": "user", "content": message.content}]
 
-                    response = await asyncio.to_thread(_call_llm)
-                    doc_store.update_conversation(doc_number, message.content, response)
-                    await message.reply(f"📄 **文档#{doc_number}助手**：{response}")
-                except Exception as e:
-                    await message.reply(f"❌ 处理出错: {str(e)}")
-            return
+                        def _call_llm():
+                            return client.chat(
+                                messages=messages, system_prompt=system_prompt,
+                                temperature=0.5, max_tokens=2048,
+                            )
+
+                        response = await asyncio.to_thread(_call_llm)
+                        await message.reply(f"📄 **{entry.title}助手**：{response}")
+                    except Exception as e:
+                        await message.reply(f"❌ 处理出错: {str(e)}")
+                return
+        else:
+            # 文档库条目讨论
+            doc_number = doc_key[1:] if isinstance(doc_key, str) and doc_key.startswith("D") else doc_key
+            if isinstance(doc_number, str):
+                doc_number = int(doc_number)
+            doc_entry = doc_store.get(doc_number)
+            if doc_entry and can_access_doc(doc_entry, message.author.id):
+                async with message.channel.typing():
+                    try:
+                        client = get_client()
+                        system_prompt = FILE_DISCUSSION_SYSTEM_PROMPT.format(
+                            filename=doc_entry.filename, file_type=doc_entry.file_type,
+                            file_summary=doc_entry.summary, file_content=doc_entry.content,
+                        )
+                        messages = [
+                            {"role": "user" if i % 2 == 0 else "assistant", "content": msg}
+                            for i, msg in enumerate(doc_entry.conversation[-6:])
+                        ]
+                        messages.append({"role": "user", "content": message.content})
+
+                        def _call_llm():
+                            return client.chat(
+                                messages=messages, system_prompt=system_prompt,
+                                temperature=0.5, max_tokens=2048,
+                            )
+
+                        response = await asyncio.to_thread(_call_llm)
+                        doc_store.update_conversation(doc_number, message.content, response)
+                        await message.reply(f"📄 **文档#D{doc_number}助手**：{response}")
+                    except Exception as e:
+                        await message.reply(f"❌ 处理出错: {str(e)}")
+                return
 
     # 面聊报告讨论 Q&A
     if message.channel.id in active_report_sessions and not message.content.startswith("/"):

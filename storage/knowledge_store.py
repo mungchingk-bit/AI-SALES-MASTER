@@ -9,18 +9,22 @@ import config
 
 class KnowledgeEntry:
     def __init__(self, title: str, content: str, category: str, source_file: str = "",
+                 uploader_id: str = "", uploader_name: str = "",
                  id: str | None = None, created_at: str | None = None):
         self.id = id or str(uuid.uuid4())
         self.title = title
         self.content = content
         self.category = category  # "company_profile" | "customer_doc" | "banquet_type" | "script_library"
         self.source_file = source_file
+        self.uploader_id = str(uploader_id)
+        self.uploader_name = uploader_name
         self.created_at = created_at or datetime.now().isoformat()
 
     def to_dict(self):
         return {
             "id": self.id, "title": self.title, "content": self.content,
             "category": self.category, "source_file": self.source_file,
+            "uploader_id": self.uploader_id, "uploader_name": self.uploader_name,
             "created_at": self.created_at,
         }
 
@@ -29,6 +33,7 @@ class KnowledgeEntry:
         return cls(
             id=data.get("id"), title=data["title"], content=data["content"],
             category=data["category"], source_file=data.get("source_file", ""),
+            uploader_id=data.get("uploader_id", ""), uploader_name=data.get("uploader_name", ""),
             created_at=data.get("created_at"),
         )
 
@@ -77,6 +82,13 @@ class KnowledgeStore:
             with open(path, "r", encoding="utf-8") as f:
                 entries.append(KnowledgeEntry.from_dict(json.load(f)))
         return sorted(entries, key=lambda e: e.created_at, reverse=True)
+
+    def list_by_user(self, user_name: str, is_admin: bool = False) -> list[KnowledgeEntry]:
+        """List entries visible to a user. Admin sees all; others see their own + shared (empty uploader_id)."""
+        entries = self.list_all()
+        if is_admin:
+            return entries
+        return [e for e in entries if not e.uploader_id or e.uploader_name == user_name]
 
     def delete(self, entry_id: str) -> bool:
         path = os.path.join(self.knowledge_dir, f"{entry_id}.json")
