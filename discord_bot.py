@@ -572,9 +572,12 @@ class DocSelectView(discord.ui.View):
 
         options = []
         for d in docs[:25]:  # Discord 最多 25 个选项
+            label = f"#{d.number} {d.filename}"
+            if len(label) > 100:
+                label = label[:97] + "..."
             summary_preview = (d.summary[:60] + "...") if len(d.summary) > 60 else d.summary
             options.append(discord.SelectOption(
-                label=f"#{d.number} {d.filename}",
+                label=label,
                 description=summary_preview,
                 value=str(d.number),
             ))
