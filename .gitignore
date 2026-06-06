@@ -11,6 +11,8 @@ build/
 
 # 运行时数据（含销售对话、客户信息等敏感数据，不上传）
 data/
+# 但知识库模板数据需要跟踪
+!data/knowledge/
 
 # Gradio
 .gradio/
