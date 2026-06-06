@@ -655,7 +655,7 @@ async def slash_files(interaction: discord.Interaction, search: str = None, mine
         lines.append(f"**#{d.number}** {d.filename} ({d.file_type}){owner} — {d.created_at[:10]}\n　{summary_brief}")
 
     lines.append("\n👇 也可以在下方下拉菜单直接选择文档")
-    view = DocSelectView(docs, interaction.user.id, is_admin=show_all)
+    view = DocSelectView(docs, interaction.user.id, is_admin_flag=show_all)
     await interaction.response.send_message("\n".join(lines), view=view)
 
 
