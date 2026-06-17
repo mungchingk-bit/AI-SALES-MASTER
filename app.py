@@ -48,7 +48,6 @@ def main():
     print("[AI SALES MASTER] 首次使用请注册账号 | 管理员: admin/admin123")
 
     app = create_app()
-    app.queue(max_size=20)
 
     app.launch(
         server_name="0.0.0.0",
@@ -56,7 +55,6 @@ def main():
         share=False,
         inbrowser=False,
         theme=gr.themes.Soft(),
-        max_threads=4,
     )
 
 

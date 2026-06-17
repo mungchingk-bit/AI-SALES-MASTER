@@ -500,14 +500,12 @@ def create_style_tab(user_dropdown=None) -> None:
         )
 
     def chat_with_report(message, history, context):
-        """基于汇报上下文的流式问答对话，自动保存聊天记录。"""
+        """基于汇报上下文的问答对话，自动保存聊天记录。"""
         from core.llm_client import get_client
         if not context:
-            yield "", history
-            return
+            return "", history
         if not message or not message.strip():
-            yield "", history
-            return
+            return "", history
 
         report = context["report"]
         original_content = context["original_content"]
@@ -525,23 +523,18 @@ def create_style_tab(user_dropdown=None) -> None:
 
         # 加入用户消息
         history.append({"role": "user", "content": message.strip()})
-        history.append({"role": "assistant", "content": ""})
-        yield "", history
 
         try:
             client = get_client()
-            full_reply = ""
-            for chunk in client.chat_stream(
+            full_reply = client.chat(
                 messages=chat_messages,
                 system_prompt=system_prompt,
                 temperature=config.EVALUATION_TEMP,
                 max_tokens=1500,
-            ):
-                full_reply += chunk
-                history[-1] = {"role": "assistant", "content": full_reply}
-                yield "", history
+            )
+            history.append({"role": "assistant", "content": full_reply})
 
-            # 流式结束后保存聊天记录
+            # 保存聊天记录
             from storage.report_store import ReportStore
             rstore = ReportStore()
             rstore.save_chat_history(report.id, list(history))
@@ -553,8 +546,10 @@ def create_style_tab(user_dropdown=None) -> None:
                 friendly = "模型响应超时，请稍后重试或缩短提问。"
             else:
                 friendly = f"回答失败：{err_msg}"
-            history[-1] = {"role": "assistant", "content": friendly}
-            yield "", history
+            history.append({"role": "assistant", "content": friendly})
+
+        return "", history
+
 
     def _build_selected_md(context, chat_history, selected_items):
         """根据勾选项构建 Markdown 文本。"""
