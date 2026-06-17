@@ -157,7 +157,7 @@ def create_style_tab(user_dropdown=None) -> None:
                         gr.update(choices=get_style_names(current_user)),
                         _refresh_report_choices(), *_empty)
 
-            # Save file to knowledge base so it appears in chat reports
+            # Save file to knowledge base
             try:
                 knowledge_store = KnowledgeStore()
                 file_content = "\n".join(msg.content for msg in messages[:200])
@@ -171,36 +171,7 @@ def create_style_tab(user_dropdown=None) -> None:
             except Exception:
                 pass
 
-            # Extract style
-            extractor = StyleExtractor()
-            profile = extractor.extract(messages, source_file=source_filename)
-            if style_name and style_name.strip():
-                profile.name = style_name.strip()
-
-            # Auto-merge with existing style of the same name
-            existing = store.list_all()
-            normalized_new = _normalize_style_name(profile.name)
-            existing_match = next(
-                (p for p in existing if _normalize_style_name(p.name) == normalized_new),
-                None
-            )
-            merge_msg = ""
-            if existing_match:
-                store.save(profile)
-                merged = store.merge(existing_match, profile, merged_name=normalized_new)
-                profile = merged
-                merge_msg = "\n已与同名风格档案合并"
-            else:
-                if len(existing) >= config.MAX_STYLE_SLOTS:
-                    return (f"风格槽位已满（最多{config.MAX_STYLE_SLOTS}个），请先删除已有风格",
-                            _refresh_styles_table(current_user),
-                            gr.update(choices=get_style_names(current_user)),
-                            gr.update(choices=get_style_names(current_user)),
-                            gr.update(choices=get_style_names(current_user)),
-                            _refresh_report_choices(), *_empty)
-                store.save(profile)
-
-            # Generate chat report and auto-show
+            # Generate report FIRST (independent of style slots)
             report = None
             report_md = ""
             report_ctx = None
@@ -211,9 +182,9 @@ def create_style_tab(user_dropdown=None) -> None:
                 report_store = ReportStore()
                 report = analyzer.analyze(
                     content=file_content,
-                    sales_name=profile.name.replace("式", ""),
+                    sales_name=sales_name.replace("式", ""),
                     source_file=source_filename,
-                    source_title=f"销售{profile.name.replace('式', '')}面聊记录",
+                    source_title=f"销售{sales_name.replace('式', '')}面聊记录",
                 )
                 report_store.save(report)
                 report_md = _format_report(report)
@@ -236,10 +207,55 @@ def create_style_tab(user_dropdown=None) -> None:
             except Exception:
                 report_md = "面聊汇报生成失败，可稍后在面聊汇报区域重试"
 
-            provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
+            # Extract style
+            extractor = StyleExtractor()
+            profile = extractor.extract(messages, source_file=source_filename)
+            if style_name and style_name.strip():
+                profile.name = style_name.strip()
+            elif current_user:
+                profile.name = f"{current_user}式"
+
+            # Auto-merge with existing style: match by normalized name or current_user
+            existing = store.list_all()
+            existing_match = None
+            normalized_new = _normalize_style_name(profile.name)
+            existing_match = next(
+                (p for p in existing if _normalize_style_name(p.name) == normalized_new),
+                None
+            )
+            if not existing_match and current_user:
+                user_key = current_user.replace("面聊", "")
+                existing_match = next(
+                    (p for p in existing if p.name.replace("式", "").replace("面聊", "") == user_key),
+                    None
+                )
+
+            style_msg = ""
+            if existing_match:
+                store.save(profile)
+                merged_name = _normalize_style_name(existing_match.name)
+                merged = store.merge(existing_match, profile, merged_name=merged_name)
+                profile = merged
+                style_msg = f"风格「{profile.name}」已与同名档案合并\n{profile.description}"
+            else:
+                if len(existing) >= config.MAX_STYLE_SLOTS:
+                    return (
+                        "面聊汇报已生成。风格提取成功但槽位已满，请先删除已有风格再提取",
+                        _refresh_styles_table(current_user),
+                        gr.update(choices=get_style_names(current_user)),
+                        gr.update(choices=get_style_names(current_user)),
+                        gr.update(choices=get_style_names(current_user)),
+                        _refresh_report_choices(report),
+                        report_md, report_ctx, [],
+                        gr.update(choices=share_choices, value=share_defaults),
+                    )
+                store.save(profile)
+                provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
+                style_msg = f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}"
+
             new_names = get_style_names(current_user)
             return (
-                f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}{merge_msg}\n面聊汇报已生成，可在下方查看和讨论",
+                f"{style_msg}\n面聊汇报已生成，可在下方查看和讨论",
                 _refresh_styles_table(current_user),
                 gr.update(choices=new_names),
                 gr.update(choices=new_names),
