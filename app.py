@@ -11,6 +11,8 @@ import config
 import gradio as gr
 from ui.layout import create_app
 
+print(f"[AI SALES MASTER] Gradio version: {gr.__version__}")
+
 
 def main():
     # 显示当前模型模式
