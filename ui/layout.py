@@ -21,9 +21,8 @@ def create_app() -> gr.Blocks:
             header = build_main_header()
 
             with gr.Tabs():
-                admin_tab = gr.Tab("⚙️ 管理面板", visible=False)
-                with admin_tab:
-                    create_admin_tab()
+                with gr.Tab("⚙️ 管理面板"):
+                    admin_content = create_admin_tab()
                 with gr.Tab("训练场"):
                     from ui.training_tab import create_training_tab
                     create_training_tab(header["user_dropdown"])
@@ -44,13 +43,13 @@ def create_app() -> gr.Blocks:
             fn=login["do_login"],
             inputs=[login["login_phone"], login["login_password"]],
             outputs=[login["logged_in_user"], login["login_msg"], main_col, login_col,
-                     header["welcome_md"], header["user_dropdown"], admin_tab],
+                     header["welcome_md"], header["user_dropdown"], admin_content],
         )
         login["reg_btn"].click(
             fn=login["do_register"],
             inputs=[login["reg_phone"], login["reg_display"], login["reg_password"], login["reg_password2"]],
             outputs=[login["logged_in_user"], login["reg_msg"], main_col, login_col,
-                     header["welcome_md"], header["user_dropdown"], admin_tab],
+                     header["welcome_md"], header["user_dropdown"], admin_content],
         )
 
     return app

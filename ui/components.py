@@ -134,81 +134,84 @@ def build_main_header():
 
 
 def create_admin_tab():
-    """管理面板作为独立 Tab。"""
+    """管理面板内容，返回一个 Column 组件用于控制可见性。非admin时隐藏。"""
     user_store = UserStore()
 
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### 添加手机号授权")
-            gr.Markdown("只有被授权的手机号才能注册。")
-            add_phone = gr.Textbox(label="手机号", placeholder="11位手机号")
-            add_name = gr.Textbox(label="姓名", placeholder="如: 小张")
-            add_phone_btn = gr.Button("添加授权", variant="primary")
-            add_phone_result = gr.Markdown("")
+    with gr.Column(visible=False) as admin_col:
+        with gr.Row():
+            with gr.Column():
+                gr.Markdown("### 添加手机号授权")
+                gr.Markdown("只有被授权的手机号才能注册。")
+                add_phone = gr.Textbox(label="手机号", placeholder="11位手机号")
+                add_name = gr.Textbox(label="姓名", placeholder="如: 小张")
+                add_phone_btn = gr.Button("添加授权", variant="primary")
+                add_phone_result = gr.Markdown("")
 
-        with gr.Column():
-            gr.Markdown("### 移除手机号")
-            remove_phone = gr.Textbox(label="手机号", placeholder="输入要移除的手机号")
-            remove_phone_btn = gr.Button("移除")
-            remove_phone_result = gr.Markdown("")
+            with gr.Column():
+                gr.Markdown("### 移除手机号")
+                remove_phone = gr.Textbox(label="手机号", placeholder="输入要移除的手机号")
+                remove_phone_btn = gr.Button("移除")
+                remove_phone_result = gr.Markdown("")
 
-    gr.Markdown("### 已授权手机号")
-    phones_display = gr.Dataframe(
-        value=_refresh_phones_table(user_store),
-        headers=["手机号", "姓名", "添加时间"],
-        interactive=False,
-    )
+        gr.Markdown("### 已授权手机号")
+        phones_display = gr.Dataframe(
+            value=_refresh_phones_table(user_store),
+            headers=["手机号", "姓名", "添加时间"],
+            interactive=False,
+        )
 
-    gr.Markdown("---")
-    gr.Markdown("### 已注册账号")
-    users_display = gr.Dataframe(
-        value=_refresh_users_table(user_store),
-        headers=["账号", "姓名", "手机号", "角色", "注册时间"],
-        interactive=False,
-    )
+        gr.Markdown("---")
+        gr.Markdown("### 已注册账号")
+        users_display = gr.Dataframe(
+            value=_refresh_users_table(user_store),
+            headers=["账号", "姓名", "手机号", "角色", "注册时间"],
+            interactive=False,
+        )
 
-    with gr.Row():
-        reset_user = gr.Textbox(label="重置密码-手机号", placeholder="输入手机号", scale=2)
-        reset_pwd = gr.Textbox(label="新密码", placeholder="至少4位", scale=2)
-        reset_btn = gr.Button("重置密码", scale=1)
-    reset_result = gr.Markdown("")
+        with gr.Row():
+            reset_user = gr.Textbox(label="重置密码-手机号", placeholder="输入手机号", scale=2)
+            reset_pwd = gr.Textbox(label="新密码", placeholder="至少4位", scale=2)
+            reset_btn = gr.Button("重置密码", scale=1)
+        reset_result = gr.Markdown("")
 
-    gr.Markdown("---")
-    gr.Markdown("### 修改密码")
-    with gr.Row():
-        change_old = gr.Textbox(label="原密码", type="password", scale=2)
-        change_new = gr.Textbox(label="新密码", placeholder="至少4位", type="password", scale=2)
-        change_btn = gr.Button("修改密码", scale=1)
-    change_result = gr.Markdown("")
+        gr.Markdown("---")
+        gr.Markdown("### 修改密码")
+        with gr.Row():
+            change_old = gr.Textbox(label="原密码", type="password", scale=2)
+            change_new = gr.Textbox(label="新密码", placeholder="至少4位", type="password", scale=2)
+            change_btn = gr.Button("修改密码", scale=1)
+        change_result = gr.Markdown("")
 
-    def _do_add_phone(phone, name):
-        ok, msg = user_store.add_allowed_phone(phone, name)
-        return msg, _refresh_phones_table(user_store)
+        def _do_add_phone(phone, name):
+            ok, msg = user_store.add_allowed_phone(phone, name)
+            return msg, _refresh_phones_table(user_store)
 
-    def _do_remove_phone(phone):
-        ok, msg = user_store.remove_allowed_phone(phone)
-        return msg, _refresh_phones_table(user_store)
+        def _do_remove_phone(phone):
+            ok, msg = user_store.remove_allowed_phone(phone)
+            return msg, _refresh_phones_table(user_store)
 
-    def _do_reset(username, new_pwd):
-        if not username or not new_pwd:
-            return "请输入手机号和新密码"
-        ok, msg = user_store.reset_password(username, new_pwd)
-        return msg
+        def _do_reset(username, new_pwd):
+            if not username or not new_pwd:
+                return "请输入手机号和新密码"
+            ok, msg = user_store.reset_password(username, new_pwd)
+            return msg
 
-    def _do_change_pwd(old_pwd, new_pwd):
-        if not old_pwd or not new_pwd:
-            return "请输入原密码和新密码"
-        if len(new_pwd) < 4:
-            return "新密码至少4位"
-        ok, msg = user_store.change_password("admin", old_pwd, new_pwd)
-        return msg
+        def _do_change_pwd(old_pwd, new_pwd):
+            if not old_pwd or not new_pwd:
+                return "请输入原密码和新密码"
+            if len(new_pwd) < 4:
+                return "新密码至少4位"
+            ok, msg = user_store.change_password("admin", old_pwd, new_pwd)
+            return msg
 
-    add_phone_btn.click(fn=_do_add_phone, inputs=[add_phone, add_name],
-                        outputs=[add_phone_result, phones_display])
-    remove_phone_btn.click(fn=_do_remove_phone, inputs=[remove_phone],
-                           outputs=[remove_phone_result, phones_display])
-    reset_btn.click(fn=_do_reset, inputs=[reset_user, reset_pwd], outputs=[reset_result])
-    change_btn.click(fn=_do_change_pwd, inputs=[change_old, change_new], outputs=[change_result])
+        add_phone_btn.click(fn=_do_add_phone, inputs=[add_phone, add_name],
+                            outputs=[add_phone_result, phones_display])
+        remove_phone_btn.click(fn=_do_remove_phone, inputs=[remove_phone],
+                               outputs=[remove_phone_result, phones_display])
+        reset_btn.click(fn=_do_reset, inputs=[reset_user, reset_pwd], outputs=[reset_result])
+        change_btn.click(fn=_do_change_pwd, inputs=[change_old, change_new], outputs=[change_result])
+
+    return admin_col
 
 
 def _refresh_phones_table(user_store=None):
