@@ -1,3 +1,6 @@
+import base64
+from io import BytesIO
+
 import gradio as gr
 import matplotlib
 import matplotlib.pyplot as plt
@@ -61,7 +64,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
 
     def generate_evaluation(session_choice):
         if not session_choice:
-            return None, "请选择训练记录", "", ""
+            return "", "请选择训练记录", "", ""
         session_id = session_choice.split("|")[-1].strip()
         sessions = session_store.list_all()
         full_id = None
@@ -70,14 +73,14 @@ def create_evaluation_tab(user_dropdown=None) -> None:
                 full_id = s.id
                 break
         if not full_id:
-            return None, "未找到训练记录", "", ""
+            return "", "未找到训练记录", "", ""
         existing = _get_eval_store().load_by_session(full_id)
         if existing:
             report = existing
         else:
             report = _get_evaluator().evaluate(full_id)
         if not report:
-            return None, "评估生成失败", "", ""
+            return "", "评估生成失败", "", ""
         chart = _generate_radar_chart(report)
         report_text = _format_dimension_report(report)
         summary_text = _format_summary(report)
@@ -88,7 +91,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         dimensions = list(report.dimension_scores.keys())
         scores = [report.dimension_scores[d].get("score", 0) for d in dimensions]
         if not dimensions or not scores:
-            return None
+            return ""
         N = len(dimensions)
         angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
         scores_plot = scores + [scores[0]]
@@ -103,7 +106,12 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         ax.set_yticklabels(["2", "4", "6", "8", "10"], fontsize=8)
         ax.set_title(f"综合评分：{report.overall_score}/10", fontsize=14, fontweight="bold", pad=20)
         plt.tight_layout()
-        return fig
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        img_b64 = base64.b64encode(buf.read()).decode('utf-8')
+        return f'<div style="text-align:center"><img src="data:image/png;base64,{img_b64}" style="max-width:100%;border-radius:8px"></div>'
 
     def _format_dimension_report(report):
         lines = [f"## 综合评分：{report.overall_score}/10\n"]
@@ -333,7 +341,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
 
     def save_correction(report, *correction_values, current_user=""):
         if not report:
-            return None, "请先生成评估报告", "", "", None
+            return "", "请先生成评估报告", "", "", "", None, gr.update()
         corrections = {}
         for i, dim in enumerate(config.EVAL_DIMENSIONS):
             score = correction_values[i * 2]
@@ -341,7 +349,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             corrections[dim] = {"score": int(score), "justification": justification}
         corrected = _get_evaluator().correct_report(report.id, corrections, corrected_by=current_user)
         if not corrected:
-            return None, "修正保存失败", "", "", None
+            return "", "修正保存失败", "", "", "", None, gr.update()
         chart = _generate_radar_chart(corrected)
         report_text = _format_dimension_report(corrected)
         summary_text = _format_summary(corrected)
@@ -379,7 +387,8 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             refresh_sessions_btn = gr.Button("刷新记录", scale=1)
             eval_btn = gr.Button("查看评估", variant="primary")
         with gr.Column(scale=2):
-            radar_chart = gr.Plot(label="评分雷达图")
+            gr.Markdown("### 评分雷达图")
+            radar_chart = gr.HTML()
 
     with gr.Tabs():
         with gr.Tab("实战总结"):
