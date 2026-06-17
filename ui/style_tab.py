@@ -139,13 +139,23 @@ def create_style_tab(user_dropdown=None) -> None:
         from core.conversation_analyzer import ConversationAnalyzer
         from storage.report_store import ReportStore
         from storage.knowledge_store import KnowledgeStore
+        _empty = "", None, [], gr.update(choices=[], value=[])
         if file is None:
-            return "请上传文件", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), _refresh_report_choices()
+            return ("请上传文件", _refresh_styles_table(current_user),
+                    gr.update(choices=get_style_names(current_user)),
+                    gr.update(choices=get_style_names(current_user)),
+                    gr.update(choices=get_style_names(current_user)),
+                    _refresh_report_choices(), *_empty)
         try:
             source_filename = os.path.basename(file.name)
             messages = parse_file(file.name)
             if not messages:
-                return "无法从文件中解析出对话记录，请检查文件格式", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), _refresh_report_choices()
+                return ("无法从文件中解析出对话记录，请检查文件格式",
+                        _refresh_styles_table(current_user),
+                        gr.update(choices=get_style_names(current_user)),
+                        gr.update(choices=get_style_names(current_user)),
+                        gr.update(choices=get_style_names(current_user)),
+                        _refresh_report_choices(), *_empty)
 
             # Save file to knowledge base so it appears in chat reports
             try:
@@ -161,17 +171,41 @@ def create_style_tab(user_dropdown=None) -> None:
             except Exception:
                 pass
 
+            # Extract style
             extractor = StyleExtractor()
             profile = extractor.extract(messages, source_file=source_filename)
             if style_name and style_name.strip():
                 profile.name = style_name.strip()
-            existing = store.list_all()
-            if len(existing) >= config.MAX_STYLE_SLOTS:
-                return f"风格槽位已满（最多{config.MAX_STYLE_SLOTS}个），请先删除已有风格", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), _refresh_report_choices()
-            store.save(profile)
 
-            # Generate chat report from uploaded file
-            report_result = ""
+            # Auto-merge with existing style of the same name
+            existing = store.list_all()
+            normalized_new = _normalize_style_name(profile.name)
+            existing_match = next(
+                (p for p in existing if _normalize_style_name(p.name) == normalized_new),
+                None
+            )
+            merge_msg = ""
+            if existing_match:
+                store.save(profile)
+                merged = store.merge(existing_match, profile, merged_name=normalized_new)
+                profile = merged
+                merge_msg = "\n已与同名风格档案合并"
+            else:
+                if len(existing) >= config.MAX_STYLE_SLOTS:
+                    return (f"风格槽位已满（最多{config.MAX_STYLE_SLOTS}个），请先删除已有风格",
+                            _refresh_styles_table(current_user),
+                            gr.update(choices=get_style_names(current_user)),
+                            gr.update(choices=get_style_names(current_user)),
+                            gr.update(choices=get_style_names(current_user)),
+                            _refresh_report_choices(), *_empty)
+                store.save(profile)
+
+            # Generate chat report and auto-show
+            report = None
+            report_md = ""
+            report_ctx = None
+            share_choices = []
+            share_defaults = []
             try:
                 analyzer = ConversationAnalyzer()
                 report_store = ReportStore()
@@ -182,23 +216,46 @@ def create_style_tab(user_dropdown=None) -> None:
                     source_title=f"销售{profile.name.replace('式', '')}面聊记录",
                 )
                 report_store.save(report)
-                report_result = f"\n面聊汇报已生成"
+                report_md = _format_report(report)
+                report_ctx = {"report": report, "original_content": file_content[:4000]}
+                if report.summary:
+                    share_choices.append("整体评价")
+                    share_defaults.append("整体评价")
+                if report.highlights:
+                    share_choices.append("做得好的地方")
+                    share_defaults.append("做得好的地方")
+                if report.improvements:
+                    share_choices.append("需要改进的地方")
+                    share_defaults.append("需要改进的地方")
+                if report.corrected_scripts:
+                    share_choices.append("改进话术对照")
+                    share_defaults.append("改进话术对照")
+                if report.next_steps:
+                    share_choices.append("下一步行动建议")
+                    share_defaults.append("下一步行动建议")
             except Exception:
-                report_result = "\n面聊汇报生成失败，可稍后重试"
+                report_md = "面聊汇报生成失败，可稍后在面聊汇报区域重试"
+
             provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
             new_names = get_style_names(current_user)
-            return (f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}{report_result}",
-                    _refresh_styles_table(current_user),
-                    gr.update(choices=new_names),
-                    gr.update(choices=new_names),
-                    gr.update(choices=new_names),
-                    _refresh_report_choices())
+            return (
+                f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}{merge_msg}\n面聊汇报已生成，可在下方查看和讨论",
+                _refresh_styles_table(current_user),
+                gr.update(choices=new_names),
+                gr.update(choices=new_names),
+                gr.update(choices=new_names),
+                _refresh_report_choices(report),
+                report_md,
+                report_ctx,
+                [],
+                gr.update(choices=share_choices, value=share_defaults),
+            )
         except Exception as e:
             return (f"提取失败：{str(e)}", _refresh_styles_table(current_user),
                     gr.update(choices=get_style_names(current_user)),
                     gr.update(choices=get_style_names(current_user)),
                     gr.update(choices=get_style_names(current_user)),
-                    _refresh_report_choices())
+                    _refresh_report_choices(), *_empty)
 
     def import_from_knowledge_base():
         """从知识库中已导入的资料提取销售风格，同名销售自动合并，同时生成面聊汇报。"""
@@ -351,13 +408,16 @@ def create_style_tab(user_dropdown=None) -> None:
             traceback.print_exc()
             return f"对比失败：{type(e).__name__}: {str(e)}"
 
-    def _refresh_report_choices():
+    def _refresh_report_choices(select_report=None):
         from storage.report_store import ReportStore
         report_store = ReportStore()
         reports = report_store.list_all()
         if not reports:
             return gr.update(choices=[], value=None)
         choices = [f"{r.sales_name} | {r.source_title} | {r.created_at[:10]}" for r in reports]
+        if select_report:
+            target = f"{select_report.sales_name} | {select_report.source_title} | {select_report.created_at[:10]}"
+            return gr.update(choices=choices, value=target)
         return gr.update(choices=choices, value=choices[0] if choices else None)
 
     def _format_report(report) -> str:
@@ -744,7 +804,7 @@ def create_style_tab(user_dropdown=None) -> None:
     _user_state = user_dropdown or gr.State("")
 
     preview_btn.click(fn=preview_before_extract, inputs=[file_input], outputs=[preview_result, extract_result])
-    extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input, _user_state], outputs=[extract_result, styles_display, delete_style_dropdown, merge_a, merge_b, report_dropdown])
+    extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input, _user_state], outputs=[extract_result, styles_display, delete_style_dropdown, merge_a, merge_b, report_dropdown, report_display, report_context, report_chatbot, share_select])
     import_kb_btn.click(fn=import_from_knowledge_base, inputs=[], outputs=[import_kb_result, styles_display, report_dropdown])
 
     def delete_style(label, current_user=""):
