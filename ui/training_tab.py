@@ -373,13 +373,22 @@ def create_training_tab(user_dropdown=None):
 
         current_user = session.user if session else ""
 
-        # Session ended naturally — generate full evaluation summary
+        # Session ended naturally — generate full evaluation summary inline
         if end_reason:
-            # Show brief summary immediately
-            brief = _format_brief_summary(session)
+            # Generate summary immediately (like end_training does)
+            try:
+                evaluator = _get_evaluator()
+                summary = evaluator.generate_summary_only(session_id)
+                try:
+                    full_report = evaluator.evaluate(session_id)
+                except Exception:
+                    full_report = None
+                summary_md = _format_session_summary(session, summary, full_report)
+            except Exception:
+                summary_md = _format_brief_summary(session)
             return (
                 chat_history, "", "已结束", receptivity_text,
-                gr.update(visible=True, value=brief + "\n\n⏳ 正在生成详细测评报告，请稍候..."),
+                gr.update(visible=True, value=summary_md),
                 gr.update(interactive=False), gr.update(interactive=False),
                 gr.update(interactive=False),  # end_btn disabled
                 gr.update(choices=_get_unfinished_choices(current_user), value=None),
@@ -501,14 +510,15 @@ def create_training_tab(user_dropdown=None):
 
     def view_history(session_choice, current_user):
         if not session_choice:
-            return gr.update(visible=False, value="")
+            return gr.update(visible=False, value=""), gr.update(choices=_get_history_choices(current_user))
         short_id = session_choice.split("|")[-1].strip()
         detail = _build_history_detail(short_id, current_user)
-        return gr.update(visible=True, value=detail)
+        return gr.update(visible=True, value=detail), gr.update(choices=_get_history_choices(current_user))
 
     def generate_full_summary(session_id, progress=gr.Progress()):
         """Generate full evaluation summary after the conversation ends.
-        Only runs when the session is no longer active — skipped as no-op otherwise."""
+        Only runs when the session is no longer active — skipped as no-op otherwise.
+        If evaluation was already done (evaluation_id exists), skip re-evaluation."""
         if not session_id:
             return gr.update(), gr.update()
         session = _get_session_store().load(session_id)
@@ -517,7 +527,20 @@ def create_training_tab(user_dropdown=None):
         # Session still active — no-op (avoid LLM calls on every normal message)
         if session.status == "active":
             return gr.update(), gr.update()
+        current_user = session.user or ""
         try:
+            # If evaluation already exists, just format the summary without re-calling LLM
+            if session.evaluation_id:
+                eval_store = _get_eval_store()
+                existing_report = eval_store.load(session.evaluation_id)
+                if existing_report:
+                    summary = existing_report.conversation_summary or ""
+                    summary_md = _format_session_summary(session, summary, existing_report)
+                    return (
+                        gr.update(visible=True, value=summary_md),
+                        gr.update(choices=_get_history_choices(current_user), value=None),
+                    )
+
             progress(0.1, desc="正在生成实战总结...")
             evaluator = _get_evaluator()
             summary = evaluator.generate_summary_only(session_id)
@@ -531,7 +554,6 @@ def create_training_tab(user_dropdown=None):
         except Exception:
             summary_md = _format_brief_summary(session)
         progress(1.0, desc="完成")
-        current_user = session.user or ""
         return (
             gr.update(visible=True, value=summary_md),
             gr.update(choices=_get_history_choices(current_user), value=None),
@@ -611,19 +633,11 @@ def create_training_tab(user_dropdown=None):
         fn=send_message,
         inputs=[current_session_id, msg_input, chatbot],
         outputs=[chatbot, msg_input, phase_display, receptivity_display, summary_display, msg_input, send_btn, end_btn, unfinished_dropdown, history_dropdown, history_detail],
-    ).then(
-        fn=generate_full_summary,
-        inputs=[current_session_id],
-        outputs=[summary_display, history_dropdown],
     )
     msg_input.submit(
         fn=send_message,
         inputs=[current_session_id, msg_input, chatbot],
         outputs=[chatbot, msg_input, phase_display, receptivity_display, summary_display, msg_input, send_btn, end_btn, unfinished_dropdown, history_dropdown, history_detail],
-    ).then(
-        fn=generate_full_summary,
-        inputs=[current_session_id],
-        outputs=[summary_display, history_dropdown],
     )
     end_btn.click(
         fn=end_training,
@@ -649,5 +663,5 @@ def create_training_tab(user_dropdown=None):
     view_history_btn.click(
         fn=view_history,
         inputs=[history_dropdown, user_dropdown],
-        outputs=[history_detail],
+        outputs=[history_detail, history_dropdown],
     )

@@ -299,12 +299,11 @@ class RoleEngine:
         lines = [f"[现在轮到{ai_label}回复。你是{ai_label}，不要用{user_label}的语气。不要称呼对方名字。]"]
 
         if turns <= 6:
-            lines.append(f"[当前阶段：{phase}，第{turns}轮。正常推进对话即可。]")
+            lines.append(f"[当前阶段：{phase}，第{turns}轮。自然推进对话即可。]")
         elif turns <= 10:
-            lines.append(f"[当前阶段：{phase}，第{turns}轮。不要重复前期已讨论的价格、流程等基础问题，聚焦于回应对方当前的提议或异议。]")
+            lines.append(f"[当前阶段：{phase}，第{turns}轮。不要重复前期已讨论的基础问题，聚焦于回应对方当前的话题。]")
         else:
-            lines.append(f"[当前阶段：{phase}，第{turns}轮。⚠️你已经在第{turns}轮了！不要再问价格、流程、设计效果等早期问题——那些全部讨论过了！")
-            lines.append(f"你现在必须表达决策倾向：认同并推进、犹豫需考虑、或明确拒绝。绝不能倒回前期话题！]")
+            lines.append(f"[当前阶段：{phase}，第{turns}轮。不要重复已经讨论过的问题。像真实客户一样，想问就继续问，觉得聊够了就自然收尾。不要为了结束而结束。]")
         return "\n".join(lines)
 
     def _fix_name_confusion(
