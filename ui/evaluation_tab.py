@@ -390,24 +390,23 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             gr.Markdown("### 评分雷达图")
             radar_chart = gr.HTML()
 
-    with gr.Tabs():
-        with gr.Tab("实战总结"):
-            summary_display = gr.Markdown()
-        with gr.Tab("维度评分"):
-            report_display = gr.Markdown()
-        with gr.Tab("修正评分"):
-            gr.Markdown("修改分数和评语后点击保存。修正数据将用于提升未来评估准确性。")
-            correction_components = []
-            for dim in config.EVAL_DIMENSIONS:
-                with gr.Row():
-                    slider = gr.Slider(1, 10, step=1, value=5, label=f"{dim} 分数", scale=1)
-                    textbox = gr.Textbox(label=f"{dim} 评语", lines=1, scale=3)
-                    correction_components.append(slider)
-                    correction_components.append(textbox)
-            save_correction_btn = gr.Button("保存修正", variant="primary")
-            correction_status = gr.Markdown("")
-        with gr.Tab("签单路径"):
-            progression_display = gr.Markdown()
+    with gr.Accordion("实战总结", open=True):
+        summary_display = gr.Markdown()
+    with gr.Accordion("维度评分", open=True):
+        report_display = gr.Markdown()
+    with gr.Accordion("签单路径", open=True):
+        progression_display = gr.Markdown()
+    with gr.Accordion("修正评分", open=False):
+        gr.Markdown("修改分数和评语后点击保存。修正数据将用于提升未来评估准确性。")
+        correction_components = []
+        for dim in config.EVAL_DIMENSIONS:
+            with gr.Row():
+                slider = gr.Slider(1, 10, step=1, value=5, label=f"{dim} 分数", scale=1)
+                textbox = gr.Textbox(label=f"{dim} 评语", lines=1, scale=3)
+                correction_components.append(slider)
+                correction_components.append(textbox)
+        save_correction_btn = gr.Button("保存修正", variant="primary")
+        correction_status = gr.Markdown("")
 
     gr.Markdown("### 分享报告")
     eval_share_select = gr.CheckboxGroup(label="选择要分享的内容", choices=[], value=[])
