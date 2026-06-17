@@ -133,7 +133,7 @@ def create_style_tab(user_dropdown=None) -> None:
         except Exception as e:
             return f"预览失败：{str(e)}", ""
 
-    def upload_and_extract(file, style_name, current_user="", progress=gr.Progress()):
+    def upload_and_extract(file, style_name, current_user=""):
         from utils.file_parser import parse_file
         from core.style_extractor import StyleExtractor
         from core.conversation_analyzer import ConversationAnalyzer
@@ -143,7 +143,6 @@ def create_style_tab(user_dropdown=None) -> None:
             return "请上传文件", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), _refresh_report_choices()
         try:
             source_filename = os.path.basename(file.name)
-            progress(0.1, desc="解析文件中...")
             messages = parse_file(file.name)
             if not messages:
                 return "无法从文件中解析出对话记录，请检查文件格式", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), _refresh_report_choices()
@@ -160,9 +159,8 @@ def create_style_tab(user_dropdown=None) -> None:
                     source_file=source_filename,
                 )
             except Exception:
-                pass  # Knowledge base save is best-effort
+                pass
 
-            progress(0.3, desc="AI正在提取风格特征...")
             extractor = StyleExtractor()
             profile = extractor.extract(messages, source_file=source_filename)
             if style_name and style_name.strip():
@@ -175,7 +173,6 @@ def create_style_tab(user_dropdown=None) -> None:
             # Generate chat report from uploaded file
             report_result = ""
             try:
-                progress(0.6, desc="正在生成面聊汇报...")
                 analyzer = ConversationAnalyzer()
                 report_store = ReportStore()
                 report = analyzer.analyze(
@@ -188,8 +185,6 @@ def create_style_tab(user_dropdown=None) -> None:
                 report_result = f"\n面聊汇报已生成"
             except Exception:
                 report_result = "\n面聊汇报生成失败，可稍后重试"
-
-            progress(1.0, desc="完成")
             provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
             new_names = get_style_names(current_user)
             return (f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}{report_result}",
@@ -205,7 +200,7 @@ def create_style_tab(user_dropdown=None) -> None:
                     gr.update(choices=get_style_names(current_user)),
                     _refresh_report_choices())
 
-    def import_from_knowledge_base(progress=gr.Progress()):
+    def import_from_knowledge_base():
         """从知识库中已导入的资料提取销售风格，同名销售自动合并，同时生成面聊汇报。"""
         import re
         from storage.knowledge_store import KnowledgeStore
@@ -267,7 +262,6 @@ def create_style_tab(user_dropdown=None) -> None:
             except Exception as e:
                 results.append(f"[失败] {entry.title}: {str(e)}")
             done += 1
-            progress(done / max(total_items, 1), desc=f"处理中 ({done}/{total_items})...")
 
         # 从面聊记录提取风格 + 生成汇报
         chats = knowledge_store.list_by_category("customer_doc")
@@ -320,12 +314,10 @@ def create_style_tab(user_dropdown=None) -> None:
             else:
                 results.append(f"[跳过] {entry.title}汇报已存在")
             done += 1
-            progress(done / max(total_items, 1), desc=f"处理中 ({done}/{total_items})...")
 
-        progress(1.0, desc="导入完成")
         return "\n".join(results), _refresh_styles_table(), _refresh_report_choices()
 
-    def compare_styles(style_a_name, style_b_name, progress=gr.Progress()):
+    def compare_styles(style_a_name, style_b_name):
         from prompts.style_extraction import STYLE_COMPARISON_PROMPT
         from core.llm_client import get_client
         if not style_a_name or not style_b_name:
@@ -347,10 +339,8 @@ def create_style_tab(user_dropdown=None) -> None:
             style_b_traits=json.dumps(profile_b.extracted_traits, ensure_ascii=False, indent=2),
         )
         try:
-            progress(0.3, desc="AI正在对比分析...")
             client = get_client()
             result = client.chat(messages=[], system_prompt=prompt, temperature=config.EXTRACTION_TEMP, max_tokens=2048, model=config.FAST_MODEL or None)
-            progress(1.0, desc="完成")
             if not result or not result.strip():
                 return "对比分析返回为空，请重试"
             return result

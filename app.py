@@ -48,6 +48,7 @@ def main():
     print("[AI SALES MASTER] 首次使用请注册账号 | 管理员: admin/admin123")
 
     app = create_app()
+    app.queue()
 
     app.launch(
         server_name="0.0.0.0",

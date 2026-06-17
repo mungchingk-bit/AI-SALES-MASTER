@@ -59,7 +59,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             choices.append(label)
         return choices
 
-    def generate_evaluation(session_choice, progress=gr.Progress()):
+    def generate_evaluation(session_choice):
         if not session_choice:
             return None, "请选择训练记录", "", ""
         session_id = session_choice.split("|")[-1].strip()
@@ -75,16 +75,13 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         if existing:
             report = existing
         else:
-            progress(0.2, desc="正在进行维度评分...")
             report = _get_evaluator().evaluate(full_id)
-            progress(0.8, desc="生成图表...")
         if not report:
             return None, "评估生成失败", "", ""
         chart = _generate_radar_chart(report)
         report_text = _format_dimension_report(report)
         summary_text = _format_summary(report)
         progression_text = _format_deal_progression(report)
-        progress(1.0, desc="完成")
         return chart, report_text, summary_text, progression_text
 
     def _generate_radar_chart(report):

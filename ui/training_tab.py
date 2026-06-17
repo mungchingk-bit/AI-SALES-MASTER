@@ -413,7 +413,7 @@ def create_training_tab(user_dropdown=None):
             gr.update(visible=False, value=""),  # history_detail
         )
 
-    def end_training(session_id, progress=gr.Progress()):
+    def end_training(session_id):
         if not session_id:
             return ("没有进行中的训练", gr.update(interactive=True),
                     gr.update(visible=False, value=""),
@@ -441,7 +441,6 @@ def create_training_tab(user_dropdown=None):
 
         Thread(target=_bg_evaluate, args=(session_id,), daemon=True).start()
 
-        progress(1.0, desc="训练已结束")
         return (
             f"训练已结束！共{turn_count}轮对话。详细评估报告正在后台生成，稍后可在「评估报告」中查看。",
             gr.update(interactive=True),  # start_btn
@@ -516,7 +515,7 @@ def create_training_tab(user_dropdown=None):
         detail = _build_history_detail(short_id, current_user)
         return gr.update(visible=True, value=detail), gr.update(choices=_get_history_choices(current_user))
 
-    def generate_full_summary(session_id, progress=gr.Progress()):
+    def generate_full_summary(session_id):
         """Generate full evaluation summary after the conversation ends.
         Only runs when the session is no longer active — skipped as no-op otherwise.
         If evaluation was already done (evaluation_id exists), skip re-evaluation."""
@@ -525,12 +524,10 @@ def create_training_tab(user_dropdown=None):
         session = _get_session_store().load(session_id)
         if not session:
             return gr.update(), gr.update()
-        # Session still active — no-op (avoid LLM calls on every normal message)
         if session.status == "active":
             return gr.update(), gr.update()
         current_user = session.user or ""
         try:
-            # If evaluation already exists, just format the summary without re-calling LLM
             if session.evaluation_id:
                 eval_store = _get_eval_store()
                 existing_report = eval_store.load(session.evaluation_id)
@@ -542,19 +539,15 @@ def create_training_tab(user_dropdown=None):
                         gr.update(choices=_get_history_choices(current_user), value=None),
                     )
 
-            progress(0.1, desc="正在生成实战总结...")
             evaluator = _get_evaluator()
             summary = evaluator.generate_summary_only(session_id)
-            progress(0.4, desc="正在进行维度评分...")
             try:
                 full_report = evaluator.evaluate(session_id)
             except Exception:
                 full_report = None
-            progress(0.9, desc="整理报告...")
             summary_md = _format_session_summary(session, summary, full_report)
         except Exception:
             summary_md = _format_brief_summary(session)
-        progress(1.0, desc="完成")
         return (
             gr.update(visible=True, value=summary_md),
             gr.update(choices=_get_history_choices(current_user), value=None),
