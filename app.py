@@ -11,10 +11,9 @@ import config
 import gradio as gr
 from ui.layout import create_app
 
-print(f"[AI SALES MASTER] Gradio version: {gr.__version__}")
-
 
 def main():
+    print(f"[AI SALES MASTER] Gradio version: {gr.__version__}", flush=True)
     # 显示当前模型模式
     if config.LLM_PROVIDER == "ollama":
         print(f"[AI SALES MASTER] 本地模型模式: {config.OLLAMA_MODEL}")
