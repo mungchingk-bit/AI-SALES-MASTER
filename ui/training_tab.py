@@ -1,5 +1,6 @@
 import gradio as gr
 from datetime import datetime
+from threading import Thread
 
 import config
 
@@ -373,22 +374,23 @@ def create_training_tab(user_dropdown=None):
 
         current_user = session.user if session else ""
 
-        # Session ended naturally — generate full evaluation summary inline
+        # Session ended naturally — show brief summary immediately, generate full report in background
         if end_reason:
-            # Generate summary immediately (like end_training does)
-            try:
-                evaluator = _get_evaluator()
-                summary = evaluator.generate_summary_only(session_id)
+            brief = _format_brief_summary(session)
+
+            # Generate evaluation in a background thread so UI doesn't freeze
+            def _bg_evaluate(sid):
                 try:
-                    full_report = evaluator.evaluate(session_id)
+                    evaluator = _get_evaluator()
+                    evaluator.evaluate(sid)
                 except Exception:
-                    full_report = None
-                summary_md = _format_session_summary(session, summary, full_report)
-            except Exception:
-                summary_md = _format_brief_summary(session)
+                    pass
+
+            Thread(target=_bg_evaluate, args=(session_id,), daemon=True).start()
+
             return (
                 chat_history, "", "已结束", receptivity_text,
-                gr.update(visible=True, value=summary_md),
+                gr.update(visible=True, value=brief + "\n\n---\n*详细评估报告正在后台生成，稍后可在「评估报告」中查看*"),
                 gr.update(interactive=False), gr.update(interactive=False),
                 gr.update(interactive=False),  # end_btn disabled
                 gr.update(choices=_get_unfinished_choices(current_user), value=None),
@@ -418,7 +420,6 @@ def create_training_tab(user_dropdown=None):
                     gr.update(interactive=False),  # end_btn
                     gr.update(choices=[]), [])
         training_mgr = _get_training_mgr()
-        evaluator = _get_evaluator()
         session = training_mgr.end_session(session_id)
         if not session:
             return ("结束训练失败", gr.update(interactive=True),
@@ -426,25 +427,25 @@ def create_training_tab(user_dropdown=None):
                     gr.update(interactive=False),
                     gr.update(choices=[]), [])
         turn_count = len(session.conversation) // 2
-        # Try to generate full evaluation, fall back to brief summary
-        try:
-            progress(0.1, desc="正在生成实战总结...")
-            summary = evaluator.generate_summary_only(session_id)
-            progress(0.4, desc="正在进行维度评分...")
-            try:
-                full_report = evaluator.evaluate(session_id)
-            except Exception:
-                full_report = None
-            progress(0.9, desc="整理报告...")
-            summary_md = _format_session_summary(session, summary, full_report)
-        except Exception:
-            summary_md = _format_brief_summary(session)
-        progress(1.0, desc="完成")
         current_user = session.user or ""
+
+        # Show brief summary immediately, generate full report in background
+        brief = _format_brief_summary(session)
+
+        def _bg_evaluate(sid):
+            try:
+                evaluator = _get_evaluator()
+                evaluator.evaluate(sid)
+            except Exception:
+                pass
+
+        Thread(target=_bg_evaluate, args=(session_id,), daemon=True).start()
+
+        progress(1.0, desc="训练已结束")
         return (
-            f"训练已结束！共{turn_count}轮对话。实战总结已生成，请查看下方。",
+            f"训练已结束！共{turn_count}轮对话。详细评估报告正在后台生成，稍后可在「评估报告」中查看。",
             gr.update(interactive=True),  # start_btn
-            gr.update(visible=True, value=summary_md),
+            gr.update(visible=True, value=brief + "\n\n---\n*详细评估报告正在后台生成，稍后可在「评估报告」中查看*"),
             gr.update(interactive=False),  # end_btn disabled
             gr.update(choices=_get_unfinished_choices(current_user), value=None),
             gr.update(choices=_get_history_choices(current_user), value=None),

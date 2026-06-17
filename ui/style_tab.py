@@ -2,6 +2,7 @@ import json
 import os
 
 import gradio as gr
+import requests
 
 from storage.style_store import StyleStore
 
@@ -337,7 +338,8 @@ def create_style_tab(user_dropdown=None) -> None:
         profile_a = next((p for p in profiles if p.name == name_a), None)
         profile_b = next((p for p in profiles if p.name == name_b), None)
         if not profile_a or not profile_b:
-            return "未找到所选风格"
+            available = [p.name for p in profiles]
+            return f"未找到所选风格。\n\n选择：{name_a} / {name_b}\n\n已有风格：{', '.join(available) if available else '无'}"
         prompt = STYLE_COMPARISON_PROMPT.format(
             style_a_name=profile_a.name,
             style_a_traits=json.dumps(profile_a.extracted_traits, ensure_ascii=False, indent=2),
@@ -347,11 +349,17 @@ def create_style_tab(user_dropdown=None) -> None:
         try:
             progress(0.3, desc="AI正在对比分析...")
             client = get_client()
-            result = client.chat(messages=[], system_prompt=prompt, temperature=config.EXTRACTION_TEMP, max_tokens=2048)
+            result = client.chat(messages=[], system_prompt=prompt, temperature=config.EXTRACTION_TEMP, max_tokens=2048, model=config.FAST_MODEL or None)
             progress(1.0, desc="完成")
+            if not result or not result.strip():
+                return "对比分析返回为空，请重试"
             return result
+        except requests.exceptions.Timeout:
+            return "请求超时，请稍后重试"
         except Exception as e:
-            return f"对比失败：{str(e)}"
+            import traceback
+            traceback.print_exc()
+            return f"对比失败：{type(e).__name__}: {str(e)}"
 
     def _refresh_report_choices():
         from storage.report_store import ReportStore
