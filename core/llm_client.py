@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from abc import ABC, abstractmethod
 from typing import Iterator
 
@@ -169,16 +170,32 @@ class OpenAICompatibleClient(BaseLLMClient):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        try:
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=120,
-            )
-            response.raise_for_status()
-        except requests.exceptions.Timeout:
-            return "请求超时，请稍后重试。"
+        response = None
+        for attempt in range(3):
+            try:
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=120,
+                )
+                response.raise_for_status()
+                break
+            except requests.exceptions.Timeout:
+                if attempt == 2:
+                    return "请求超时，请稍后重试。"
+                time.sleep(8 * (attempt + 1))
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else None
+                if status == 429 and attempt < 2:
+                    retry_after = e.response.headers.get("Retry-After", "") if e.response is not None else ""
+                    try:
+                        wait_seconds = int(float(retry_after))
+                    except (TypeError, ValueError):
+                        wait_seconds = 15 * (attempt + 1)
+                    time.sleep(min(max(wait_seconds, 5), 45))
+                    continue
+                raise
         result = response.json()
         msg = result["choices"][0]["message"]
         return msg.get("content") or msg.get("reasoning_content", "（无回复）")
