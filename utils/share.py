@@ -167,113 +167,122 @@ def export_as_docx(md_text: str, title: str = "销售大师报告") -> str:
 
 def generate_image(md_text: str, title: str = "销售大师") -> str:
     """将 Markdown 文本渲染为图片，返回文件路径。"""
-    # Prepare text content
-    clean_lines = []
-    for line in md_text.split("\n"):
-        stripped = line.strip()
-        stripped = re.sub(r"^#+\s*", "", stripped)
-        stripped = re.sub(r"\*\*(.*?)\*\*", r"\1", stripped)
-        stripped = re.sub(r"[*_](.*?)[*_]", r"\1", stripped)
-        clean_lines.append(stripped)
+    font_path = _find_chinese_font()
+    fonts = {
+        "title": ImageFont.truetype(font_path, 34),
+        "subtitle": ImageFont.truetype(font_path, 20),
+        "section": ImageFont.truetype(font_path, 25),
+        "body": ImageFont.truetype(font_path, 20),
+        "small": ImageFont.truetype(font_path, 15),
+        "label": ImageFont.truetype(font_path, 16),
+    }
 
-    text = "\n".join(clean_lines).strip()
-    if not text:
-        text = "（无内容）"
+    report_title, meta_lines, sections = _parse_markdown_for_poster(md_text)
+    if not report_title:
+        report_title = title
+    if not sections and not meta_lines:
+        sections = [{"title": "汇报内容", "lines": ["（无内容）"]}]
 
-    # Try to find a Chinese font. Linux servers need explicit CJK fonts;
-    # otherwise PIL falls back to a default font that cannot render Chinese.
-    font_paths = [
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/msyhbd.ttc",
-        "C:/Windows/Fonts/simhei.ttf",
-        "C:/Windows/Fonts/simsun.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/arphic/uming.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-        "/System/Library/Fonts/STHeiti Light.ttc",
-    ]
-    font_path = None
-    for fp in font_paths:
-        if os.path.exists(fp) and _font_can_render_chinese(fp):
-            font_path = fp
-            break
+    width = 1080
+    card_width = 760
+    panel_x = (width - card_width) // 2
+    content_x = panel_x + 64
+    content_w = card_width - 128
+    top_margin = 120
+    header_h = 320
+    section_gap = 34
 
-    if not font_path:
-        raise RuntimeError(
-            "未找到可用中文字体，无法生成中文图片。请在服务器安装 fonts-noto-cjk 或 fonts-wqy-zenhei。"
-        )
+    measure = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    body_lh = 34
+    section_title_lh = 42
+    total_content_h = header_h + 80
+    total_content_h += _wrapped_height(report_title, content_w, measure, fonts["title"], 44)
+    total_content_h += max(40, len(meta_lines) * 28)
 
-    font = ImageFont.truetype(font_path, 20)
-    title_font = ImageFont.truetype(font_path, 28)
-    small_font = ImageFont.truetype(font_path, 14)
+    rendered_sections = []
+    for idx, section in enumerate(sections):
+        max_lines = 8 if idx < 3 else 6
+        body_lines = []
+        for raw in section["lines"]:
+            cleaned = _clean_markdown_line(raw)
+            if cleaned:
+                body_lines.append(cleaned)
+        if len(body_lines) > max_lines:
+            body_lines = body_lines[:max_lines] + ["……"]
+        section_h = 34 + section_title_lh
+        for line in body_lines:
+            section_h += _wrapped_height(line, content_w - 34, measure, fonts["body"], body_lh)
+        section_h += 26
+        rendered_sections.append((section["title"], body_lines, section_h))
+        total_content_h += section_h + section_gap
 
-    width = 800
-    padding = 40
-    line_height = 32
+    panel_h = total_content_h + 80
+    height = max(1500, top_margin * 2 + panel_h)
 
-    # Calculate height
-    test_img = Image.new("RGB", (1, 1))
-    test_draw = ImageDraw.Draw(test_img)
-    total_height = padding * 2 + 50  # title area
-    for line in clean_lines:
-        if not line:
-            total_height += line_height // 2
-            continue
-        bbox = test_draw.textbbox((0, 0), line, font=font)
-        line_w = bbox[2] - bbox[0]
-        if line_w > width - padding * 2:
-            wrapped = _wrap_text(line, width - padding * 2, test_draw, font)
-            total_height += line_height * len(wrapped)
-        else:
-            total_height += line_height
-    total_height += 60  # footer
-
-    # Create image
-    img = Image.new("RGB", (width, total_height), "#FAFAFA")
+    img = _make_textured_background(width, height)
     draw = ImageDraw.Draw(img)
 
-    # Header bar
-    draw.rectangle([(0, 0), (width, 6)], fill="#4CAF50")
+    # Side marks inspired by editorial posters.
+    draw.text((56, 90), "AI SALES MASTER", fill="#F5F7F8", font=fonts["label"])
+    draw.text((width - 210, height - 310), "@Kela Moment", fill="#F5F7F8", font=fonts["label"])
 
-    # Title
-    draw.text((padding, padding + 10), title, fill="#333333", font=title_font)
-    draw.line([(padding, padding + 50), (width - padding, padding + 50)], fill="#E0E0E0", width=1)
+    panel_y = top_margin
+    draw.rounded_rectangle(
+        [(panel_x, panel_y), (panel_x + card_width, panel_y + panel_h)],
+        radius=0,
+        fill="#F4FBFC",
+    )
 
-    # Content
-    y = padding + 70
-    max_text_width = width - padding * 2
-    for line in clean_lines:
-        if y > total_height - 40:
-            break
-        if not line:
-            y += line_height // 2
-            continue
+    # Visual hero block.
+    hero_y = panel_y
+    draw.rectangle([(panel_x, hero_y), (panel_x + card_width, hero_y + header_h)], fill="#DDEEF1")
+    draw.polygon(
+        [
+            (panel_x + 70, hero_y + header_h),
+            (panel_x + card_width * 0.53, hero_y + 138),
+            (panel_x + card_width - 50, hero_y + header_h),
+        ],
+        fill="#F6EFE0",
+    )
+    draw.polygon(
+        [
+            (panel_x + 70, hero_y + header_h),
+            (panel_x + card_width * 0.53, hero_y + 138),
+            (panel_x + card_width * 0.53, hero_y + header_h),
+        ],
+        fill="#E8E1D1",
+    )
+    draw.line(
+        [(panel_x + card_width * 0.53, hero_y + 138), (panel_x + card_width - 50, hero_y + header_h)],
+        fill="#C99544",
+        width=4,
+    )
+    draw.text((content_x, hero_y + 52), "面聊复盘", fill="#235375", font=fonts["subtitle"])
+    draw.text((content_x, hero_y + 86), "Conversation Review", fill="#6E8795", font=fonts["small"])
 
-        if line.startswith("─"):
-            draw.line([(padding, y + line_height // 2), (width - padding, y + line_height // 2)], fill="#CCCCCC", width=1)
-            y += line_height
-            continue
+    y = panel_y + header_h + 54
+    y = _draw_wrapped_text(draw, report_title, content_x, y, content_w, fonts["title"], "#183B56", 44)
+    y += 12
+    for meta in meta_lines[:2]:
+        y = _draw_wrapped_text(draw, _clean_markdown_line(meta), content_x, y, content_w, fonts["small"], "#587284", 25)
+    y += 28
 
-        bbox = draw.textbbox((0, 0), line, font=font)
-        line_w = bbox[2] - bbox[0]
-        if line_w > max_text_width:
-            wrapped = _wrap_text(line, max_text_width, draw, font)
-            for wl in wrapped:
-                if y > total_height - 40:
-                    break
-                draw.text((padding, y), wl, fill="#333333", font=font)
-                y += line_height
-        else:
-            draw.text((padding, y), line, fill="#333333", font=font)
-            y += line_height
+    accent_colors = ["#255D8A", "#7A9E9F", "#B58B4B", "#556B8E", "#8B6F7E"]
+    for idx, (section_title, body_lines, section_h) in enumerate(rendered_sections):
+        color = accent_colors[idx % len(accent_colors)]
+        draw.rectangle([(content_x, y + 8), (content_x + 14, y + 42)], fill=color)
+        draw.text((content_x + 28, y), section_title, fill=color, font=fonts["section"])
+        y += section_title_lh + 12
+        for line in body_lines:
+            y = _draw_wrapped_text(draw, line, content_x + 28, y, content_w - 34, fonts["body"], "#2E4656", body_lh)
+        y += 24
+        if idx != len(rendered_sections) - 1:
+            draw.line([(content_x, y), (content_x + content_w, y)], fill="#D5E2E6", width=1)
+            y += section_gap
 
-    # Footer
-    draw.line([(padding, total_height - 50), (width - padding, total_height - 50)], fill="#E0E0E0", width=1)
-    draw.text((padding, total_height - 38), "AI 销售大师 · 克拉时刻", fill="#999999", font=small_font)
+    footer_y = panel_y + panel_h - 54
+    draw.line([(content_x, footer_y - 16), (content_x + content_w, footer_y - 16)], fill="#D5E2E6", width=1)
+    draw.text((content_x, footer_y), "AI 销售大师 · 克拉时刻", fill="#7F949F", font=fonts["small"])
 
     path = os.path.join(tempfile.gettempdir(), f"{title}_{uuid.uuid4().hex[:6]}.png")
     img.save(path, "PNG")
@@ -318,12 +327,99 @@ def _wrap_text(text, max_width, draw, font):
     return lines if lines else [text]
 
 
+def _find_chinese_font() -> str:
+    font_paths = [
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+    ]
+    for fp in font_paths:
+        if os.path.exists(fp) and _font_can_render_chinese(fp):
+            return fp
+    raise RuntimeError(
+        "未找到可用中文字体，无法生成中文图片。请在服务器安装 fonts-noto-cjk 或 fonts-wqy-zenhei。"
+    )
+
+
 def _font_can_render_chinese(font_path: str) -> bool:
     try:
         font = ImageFont.truetype(font_path, 20)
         return font.getmask("销售汇报").getbbox() is not None
     except Exception:
         return False
+
+
+def _parse_markdown_for_poster(md_text: str):
+    title = ""
+    meta_lines = []
+    sections = []
+    current = None
+
+    for raw_line in md_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            title = _clean_markdown_line(line[2:])
+            continue
+        if line.startswith("## "):
+            if current:
+                sections.append(current)
+            current = {"title": _clean_markdown_line(line[3:]), "lines": []}
+            continue
+        if line.startswith("### "):
+            if current:
+                sections.append(current)
+            current = {"title": _clean_markdown_line(line[4:]), "lines": []}
+            continue
+        if line.startswith("---"):
+            continue
+        if current is None:
+            meta_lines.append(line)
+        else:
+            current["lines"].append(line)
+
+    if current:
+        sections.append(current)
+    return title, meta_lines, sections
+
+
+def _clean_markdown_line(text: str) -> str:
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"[*_](.*?)[*_]", r"\1", text)
+    text = re.sub(r"^\s*[-•]\s*", "• ", text)
+    text = re.sub(r"^\s*(\d+)\.\s*", r"\1. ", text)
+    return text.strip()
+
+
+def _wrapped_height(text: str, max_width: int, draw, font, line_height: int) -> int:
+    return max(line_height, len(_wrap_text(text, max_width, draw, font)) * line_height)
+
+
+def _draw_wrapped_text(draw, text: str, x: int, y: int, max_width: int, font, fill: str, line_height: int) -> int:
+    for line in _wrap_text(text, max_width, draw, font):
+        draw.text((x, y), line, fill=fill, font=font)
+        y += line_height
+    return y
+
+
+def _make_textured_background(width: int, height: int) -> Image.Image:
+    base = Image.new("RGB", (width, height), "#596A76")
+    noise = Image.effect_noise((width, height), 38).convert("L")
+    texture = Image.new("RGB", (width, height), "#6E7E87")
+    base = Image.blend(base, texture, 0.38)
+    base.putalpha(255)
+    noise_rgb = Image.merge("RGB", (noise, noise, noise))
+    return Image.blend(base.convert("RGB"), noise_rgb, 0.08)
 
 
 def _build_share_html(md_text: str, title: str) -> str:
