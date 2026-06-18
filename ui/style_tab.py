@@ -158,10 +158,22 @@ def create_style_tab(user_dropdown=None) -> None:
                         _refresh_report_choices(), *_empty)
 
             # Save file to knowledge base
+            import re
             try:
                 knowledge_store = KnowledgeStore()
                 file_content = "\n".join(msg.content for msg in messages[:200])
-                sales_name = current_user or style_name or "未知"
+                # Determine sales name: current_user > filename > style_name > 未知
+                sales_name = ""
+                if current_user:
+                    sales_name = current_user
+                else:
+                    m = re.search(r"销售(\w+)", source_filename)
+                    if m:
+                        sales_name = m.group(1)
+                    elif style_name and style_name.strip():
+                        sales_name = style_name.strip()
+                if not sales_name:
+                    sales_name = "未知"
                 knowledge_store.save(
                     category="customer_doc",
                     title=f"销售{sales_name}面聊记录",
@@ -169,7 +181,7 @@ def create_style_tab(user_dropdown=None) -> None:
                     source_file=source_filename,
                 )
             except Exception:
-                pass
+                sales_name = current_user or style_name or "未知"
 
             # Generate report FIRST (independent of style slots)
             report = None
@@ -210,12 +222,13 @@ def create_style_tab(user_dropdown=None) -> None:
             # Extract style
             extractor = StyleExtractor()
             profile = extractor.extract(messages, source_file=source_filename)
+            # Name the style: custom input > sales_name式 > LLM-generated
             if style_name and style_name.strip():
                 profile.name = style_name.strip()
-            elif current_user:
-                profile.name = f"{current_user}式"
+            elif sales_name and sales_name != "未知":
+                profile.name = f"{sales_name}式"
 
-            # Auto-merge with existing style: match by normalized name or current_user
+            # Auto-merge with existing style: match by normalized name or sales_name
             existing = store.list_all()
             existing_match = None
             normalized_new = _normalize_style_name(profile.name)
@@ -223,8 +236,8 @@ def create_style_tab(user_dropdown=None) -> None:
                 (p for p in existing if _normalize_style_name(p.name) == normalized_new),
                 None
             )
-            if not existing_match and current_user:
-                user_key = current_user.replace("面聊", "")
+            if not existing_match and sales_name and sales_name != "未知":
+                user_key = sales_name.replace("面聊", "")
                 existing_match = next(
                     (p for p in existing if p.name.replace("式", "").replace("面聊", "") == user_key),
                     None
