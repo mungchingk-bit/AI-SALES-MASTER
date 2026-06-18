@@ -600,6 +600,81 @@ def create_style_tab(user_dropdown=None) -> None:
             None,
         )
 
+    def _build_report_share_choices(report, saved_history=None):
+        """Build share checkbox choices for report sections and saved chat messages."""
+        saved_history = saved_history or []
+        section_choices = []
+        section_defaults = []
+        if report.summary:
+            section_choices.append("整体评价")
+            section_defaults.append("整体评价")
+        if report.highlights:
+            section_choices.append("做得好的地方")
+            section_defaults.append("做得好的地方")
+        if report.improvements:
+            section_choices.append("需要改进的地方")
+            section_defaults.append("需要改进的地方")
+        if report.corrected_scripts:
+            section_choices.append("改进话术对照")
+            section_defaults.append("改进话术对照")
+        if report.next_steps:
+            section_choices.append("下一步行动建议")
+            section_defaults.append("下一步行动建议")
+        for msg in saved_history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            label = "销售大师" if role == "assistant" else "我"
+            preview = content[:30].replace("\n", " ")
+            if len(content) > 30:
+                preview += "..."
+            section_choices.append(f"💬 {label}：{preview}")
+            section_defaults.append(f"💬 {label}：{preview}")
+        return section_choices, section_defaults
+
+    def regenerate_report(report_choice, current_user=""):
+        """用已保存的原始面聊记录重新生成完整AI汇报，覆盖占位汇报。"""
+        context = _load_report_context(report_choice, current_user)
+        if not context:
+            return "请选择要重新生成的汇报", None, [], gr.update(choices=[], value=[])
+
+        old_report = context["report"]
+        original_content = context.get("original_content") or ""
+        if not original_content.strip():
+            return "未找到原始面聊记录，无法重新生成", context, old_report.chat_history or [], gr.update(choices=[], value=[])
+
+        try:
+            from core.conversation_analyzer import ConversationAnalyzer
+            from storage.report_store import ReportStore
+
+            new_report = ConversationAnalyzer().analyze(
+                content=original_content,
+                sales_name=old_report.sales_name,
+                source_file=old_report.source_file,
+                source_title=old_report.source_title,
+            )
+            new_report.id = old_report.id
+            new_report.created_at = old_report.created_at
+            new_report.chat_history = old_report.chat_history
+            new_report.uploader_name = getattr(old_report, "uploader_name", old_report.sales_name)
+            ReportStore().save(new_report)
+
+            saved_history = old_report.chat_history or []
+            choices, defaults = _build_report_share_choices(new_report, saved_history)
+            new_context = {"report": new_report, "original_content": original_content}
+            return (
+                _format_report(new_report),
+                new_context,
+                saved_history,
+                gr.update(choices=choices, value=defaults),
+            )
+        except Exception as e:
+            return (
+                f"重新生成失败：{str(e)[:200]}",
+                context,
+                old_report.chat_history or [],
+                gr.update(choices=[], value=[]),
+            )
+
     def view_report_and_prepare_chat(report_choice, current_user=""):
         """查看汇报内容，同时加载聊天上下文和已有聊天记录，并生成分享勾选项。"""
         if not report_choice:
@@ -621,32 +696,7 @@ def create_style_tab(user_dropdown=None) -> None:
                 saved_history.append({"role": role, "content": content})
 
         # Build share checkboxes: report sections + chat messages
-        section_choices = []
-        section_defaults = []
-        if report.summary:
-            section_choices.append("整体评价")
-            section_defaults.append("整体评价")
-        if report.highlights:
-            section_choices.append("做得好的地方")
-            section_defaults.append("做得好的地方")
-        if report.improvements:
-            section_choices.append("需要改进的地方")
-            section_defaults.append("需要改进的地方")
-        if report.corrected_scripts:
-            section_choices.append("改进话术对照")
-            section_defaults.append("改进话术对照")
-        if report.next_steps:
-            section_choices.append("下一步行动建议")
-            section_defaults.append("下一步行动建议")
-        for i, msg in enumerate(saved_history):
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            label = "销售大师" if role == "assistant" else "我"
-            preview = content[:30].replace("\n", " ")
-            if len(content) > 30:
-                preview += "..."
-            section_choices.append(f"💬 {label}：{preview}")
-            section_defaults.append(f"💬 {label}：{preview}")
+        section_choices, section_defaults = _build_report_share_choices(report, saved_history)
 
         return (
             _format_report(report), context, saved_history,
@@ -911,7 +961,8 @@ def create_style_tab(user_dropdown=None) -> None:
                 label="选择汇报",
             )
             with gr.Row():
-                view_report_btn = gr.Button("查看汇报", variant="primary", scale=3)
+                view_report_btn = gr.Button("查看汇报", variant="primary", scale=2)
+                regenerate_report_btn = gr.Button("重新生成汇报", variant="secondary", scale=2)
                 delete_report_btn = gr.Button("删除汇报", variant="stop", scale=1)
             report_display = gr.Markdown()
             report_context = gr.State(None)
@@ -990,6 +1041,7 @@ def create_style_tab(user_dropdown=None) -> None:
 
     compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
     view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown, _user_state], outputs=[report_display, report_context, report_chatbot, share_select])
+    regenerate_report_btn.click(fn=regenerate_report, inputs=[report_dropdown, _user_state], outputs=[report_display, report_context, report_chatbot, share_select])
     delete_report_btn.click(fn=delete_report, inputs=[report_dropdown, _user_state], outputs=[report_display, report_dropdown, report_context, report_chatbot, share_select, share_text_output, share_file_output])
     if user_dropdown is not None:
         user_dropdown.change(
