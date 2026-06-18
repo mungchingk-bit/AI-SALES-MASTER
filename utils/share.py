@@ -192,7 +192,7 @@ def generate_image(md_text: str, title: str = "销售大师") -> str:
     content_x = panel_x + 64
     content_w = card_width - 128
     top_margin = 120
-    header_h = 320
+    header_h = 72
     section_gap = 34
 
     measure = ImageDraw.Draw(Image.new("RGB", (1, 1)))
@@ -227,9 +227,6 @@ def generate_image(md_text: str, title: str = "销售大师") -> str:
 
     # Side marks inspired by editorial posters.
     draw.text((56, 90), "AI SALES MASTER", fill="#F5F7F8", font=fonts["label"])
-    side_label = "@Kela Moment"
-    side_bbox = draw.textbbox((0, 0), side_label, font=fonts["label"])
-    draw.text((width - (side_bbox[2] - side_bbox[0]) - 38, height - 310), side_label, fill="#F5F7F8", font=fonts["label"])
 
     panel_y = top_margin
     draw.rounded_rectangle(
@@ -238,32 +235,11 @@ def generate_image(md_text: str, title: str = "销售大师") -> str:
         fill="#F4FBFC",
     )
 
-    # Visual hero block.
+    # Compact report header.
     hero_y = panel_y
     draw.rectangle([(panel_x, hero_y), (panel_x + card_width, hero_y + header_h)], fill="#DDEEF1")
-    draw.polygon(
-        [
-            (panel_x + 70, hero_y + header_h),
-            (panel_x + card_width * 0.53, hero_y + 138),
-            (panel_x + card_width - 50, hero_y + header_h),
-        ],
-        fill="#F6EFE0",
-    )
-    draw.polygon(
-        [
-            (panel_x + 70, hero_y + header_h),
-            (panel_x + card_width * 0.53, hero_y + 138),
-            (panel_x + card_width * 0.53, hero_y + header_h),
-        ],
-        fill="#E8E1D1",
-    )
-    draw.line(
-        [(panel_x + card_width * 0.53, hero_y + 138), (panel_x + card_width - 50, hero_y + header_h)],
-        fill="#C99544",
-        width=4,
-    )
-    draw.text((content_x, hero_y + 52), hero_label, fill="#235375", font=fonts["subtitle"])
-    draw.text((content_x, hero_y + 86), hero_subtitle, fill="#6E8795", font=fonts["small"])
+    draw.text((content_x, hero_y + 22), hero_label, fill="#235375", font=fonts["subtitle"])
+    draw.text((content_x + 110, hero_y + 27), hero_subtitle, fill="#6E8795", font=fonts["small"])
 
     y = panel_y + header_h + 54
     y = _draw_wrapped_text(draw, report_title, content_x, y, content_w, fonts["title"], "#183B56", 44)
