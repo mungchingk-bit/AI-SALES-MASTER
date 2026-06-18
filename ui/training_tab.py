@@ -115,6 +115,8 @@ def _build_history_detail(session_id_short: str, current_user="") -> str:
             break
     if not session:
         return "未找到该训练记录"
+    if current_user and session.user and session.user != current_user:
+        return "无权查看该训练记录"
 
     lines = ["# 训练记录详情\n"]
 
@@ -271,10 +273,12 @@ def create_training_tab(user_dropdown=None):
 
     current_session_id = gr.State(None)
 
-    def get_style_choices():
+    def get_style_choices(current_user=""):
         profiles = style_store.list_all()
         choices = ["不指定（默认顾问式）"]
         for p in profiles:
+            if current_user and current_user not in p.name:
+                continue
             choices.append(p.name)
         return choices
 
@@ -459,6 +463,9 @@ def create_training_tab(user_dropdown=None):
         if not session or session.status != "active":
             return (None, [], "未开始", "-", gr.update(interactive=False), gr.update(interactive=False),
                     gr.update(interactive=False), gr.update(interactive=True), "会话不存在或已结束", gr.update(visible=False, value=""))
+        if current_user and session.user and session.user != current_user:
+            return (None, [], "未开始", "-", gr.update(interactive=False), gr.update(interactive=False),
+                    gr.update(interactive=False), gr.update(interactive=True), "无权恢复该训练", gr.update(visible=False, value=""))
 
         chat_history = [{"role": msg.role, "content": msg.content} for msg in session.conversation]
         phase = _detect_phase_from_session(session)
@@ -485,6 +492,9 @@ def create_training_tab(user_dropdown=None):
         session = _get_session_store().load(session_id)
         if not session:
             return ("未找到会话", gr.update(choices=_get_unfinished_choices(current_user), value=None),
+                    gr.update(choices=_get_history_choices(current_user), value=None), gr.update(visible=False, value=""))
+        if current_user and session.user and session.user != current_user:
+            return ("无权放弃该训练", gr.update(choices=_get_unfinished_choices(current_user), value=None),
                     gr.update(choices=_get_history_choices(current_user), value=None), gr.update(visible=False, value=""))
         session.status = "abandoned"
         session.ended_at = datetime.now().isoformat()
@@ -654,6 +664,10 @@ def create_training_tab(user_dropdown=None):
         inputs=[user_dropdown],
         outputs=[history_dropdown],
     )
+    if user_dropdown is not None:
+        user_dropdown.change(fn=lambda current_user: gr.update(choices=get_style_choices(current_user), value="不指定（默认顾问式）"), inputs=[user_dropdown], outputs=[style_dropdown])
+        user_dropdown.change(fn=refresh_unfinished, inputs=[user_dropdown], outputs=[unfinished_dropdown])
+        user_dropdown.change(fn=refresh_history, inputs=[user_dropdown], outputs=[history_dropdown])
     view_history_btn.click(
         fn=view_history,
         inputs=[history_dropdown, user_dropdown],

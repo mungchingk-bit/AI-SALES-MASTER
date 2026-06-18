@@ -62,7 +62,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             choices.append(label)
         return choices
 
-    def generate_evaluation(session_choice):
+    def generate_evaluation(session_choice, current_user=""):
         if not session_choice:
             return "", "请选择训练记录", "", ""
         session_id = session_choice.split("|")[-1].strip()
@@ -70,6 +70,8 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         full_id = None
         for s in sessions:
             if s.id.startswith(session_id):
+                if current_user and s.user and s.user != current_user:
+                    return "", "无权查看该训练记录", "", ""
                 full_id = s.id
                 break
         if not full_id:
@@ -199,8 +201,8 @@ def create_evaluation_tab(user_dropdown=None) -> None:
     # --- Share functions ---
     current_eval_report = gr.State(None)
 
-    def generate_and_store_evaluation(session_choice):
-        chart, report_text, summary_text, progression_text = generate_evaluation(session_choice)
+    def generate_and_store_evaluation(session_choice, current_user=""):
+        chart, report_text, summary_text, progression_text = generate_evaluation(session_choice, current_user)
         # Build share checkboxes + populate correction modal
         section_choices = []
         section_defaults = []
@@ -214,6 +216,12 @@ def create_evaluation_tab(user_dropdown=None) -> None:
                     full_id = s.id
                     break
             if full_id:
+                session = _get_session_store().load(full_id)
+                if current_user and session and session.user and session.user != current_user:
+                    for dim in config.EVAL_DIMENSIONS:
+                        correction_defaults.append(5)
+                        correction_defaults.append("")
+                    return chart, report_text, summary_text, progression_text, None, gr.update(choices=[], value=[]), *correction_defaults
                 report = _get_eval_store().load_by_session(full_id)
                 if report:
                     if report.dimension_scores:
@@ -423,7 +431,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
 
     eval_btn.click(
         fn=generate_and_store_evaluation,
-        inputs=[session_dropdown],
+        inputs=[session_dropdown, user_dropdown or gr.State("")],
         outputs=[radar_chart, report_display, summary_display, progression_display, current_eval_report, eval_share_select] + correction_components,
     )
     save_correction_btn.click(
@@ -432,6 +440,8 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         outputs=[radar_chart, correction_status, report_display, summary_display, progression_display, current_eval_report, eval_share_select],
     )
     refresh_sessions_btn.click(fn=refresh_sessions, inputs=[user_dropdown or gr.State("")], outputs=[session_dropdown])
+    if user_dropdown is not None:
+        user_dropdown.change(fn=refresh_sessions, inputs=[user_dropdown], outputs=[session_dropdown])
     eval_share_copy_btn.click(fn=eval_share_copy, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_text_output])
     eval_share_docx_btn.click(fn=eval_share_docx, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_file_output])
     eval_share_image_btn.click(fn=eval_share_image, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_file_output])

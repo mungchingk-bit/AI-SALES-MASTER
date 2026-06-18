@@ -50,13 +50,14 @@ def build_login_ui():
             role_label = "管理员" if user["role"] == "admin" else "销售"
             sales_names = [u["display_name"] for u in user_store.list_sales()]
             is_admin = user["role"] == "admin"
+            user_choices = sales_names if is_admin else [display]
             return (
                 user["username"],
                 gr.update(visible=False),
                 gr.update(visible=True),
                 gr.update(visible=False),
                 f"**欢迎，{display}！** 角色：{role_label}",
-                gr.update(choices=sales_names, value=display if user["role"] == "sales" else None),
+                gr.update(choices=user_choices, value=display if user["role"] == "sales" else None, interactive=is_admin),
                 gr.update(visible=is_admin),
             )
         return (None, gr.update(visible=True, value="**手机号或密码错误**"),
@@ -86,7 +87,7 @@ def build_login_ui():
             gr.update(visible=True),
             gr.update(visible=False),
             f"**欢迎，{display}！** 注册成功",
-            gr.update(choices=sales_names, value=display),
+            gr.update(choices=[display], value=display, interactive=False),
             gr.update(visible=False),  # registered users are always "sales" role, no admin tab
         )
 

@@ -99,6 +99,8 @@ def create_weekly_tab(user_dropdown=None):
         review = _get_review_store().load(review_id)
         if not review:
             return gr.update(value="未找到该周报")
+        if current_user and review.user != current_user:
+            return gr.update(value="无权查看该周报")
         return gr.update(value=_format_review(review))
 
     generate_btn.click(
@@ -111,6 +113,8 @@ def create_weekly_tab(user_dropdown=None):
         inputs=[user_dropdown],
         outputs=[review_dropdown],
     )
+    if user_dropdown is not None:
+        user_dropdown.change(fn=refresh_reviews, inputs=[user_dropdown], outputs=[review_dropdown])
     view_btn.click(
         fn=view_review,
         inputs=[review_dropdown, user_dropdown],

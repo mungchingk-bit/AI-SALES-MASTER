@@ -31,7 +31,7 @@ def create_app() -> gr.Blocks:
                     create_style_tab(header["user_dropdown"])
                 with gr.Tab("评估报告"):
                     from ui.evaluation_tab import create_evaluation_tab
-                    create_evaluation_tab()
+                    create_evaluation_tab(header["user_dropdown"])
                 with gr.Tab("每周复盘"):
                     from ui.weekly_tab import create_weekly_tab
                     create_weekly_tab(header["user_dropdown"])

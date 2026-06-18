@@ -34,4 +34,6 @@ class WeeklyReviewStore:
         return reviews
 
     def list_by_user(self, user: str) -> list[WeeklyReview]:
+        if not user:
+            return self.list_all()
         return [r for r in self.list_all() if r.user == user]

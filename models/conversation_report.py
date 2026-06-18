@@ -13,6 +13,7 @@ class ConversationReport:
     corrected_scripts: list = field(default_factory=list)
     next_steps: list = field(default_factory=list)
     summary: str = ""
+    uploader_name: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     chat_history: list = field(default_factory=list)
@@ -28,6 +29,7 @@ class ConversationReport:
             "corrected_scripts": self.corrected_scripts,
             "next_steps": self.next_steps,
             "summary": self.summary,
+            "uploader_name": self.uploader_name,
             "created_at": self.created_at,
             "chat_history": self.chat_history,
         }
@@ -44,6 +46,7 @@ class ConversationReport:
             corrected_scripts=data.get("corrected_scripts", []),
             next_steps=data.get("next_steps", []),
             summary=data.get("summary", ""),
+            uploader_name=data.get("uploader_name", data.get("sales_name", "")),
             created_at=data.get("created_at", datetime.now().isoformat()),
             chat_history=data.get("chat_history", []),
         )

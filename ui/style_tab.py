@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 import gradio as gr
 import requests
@@ -102,6 +103,30 @@ def create_style_tab(user_dropdown=None) -> None:
             return ""
         return user_dropdown_val.strip()
 
+    def _extract_sales_name_from_filename(filename: str) -> str:
+        """Extract the trailing salesperson name from filenames like '...销售免免.docx'."""
+        stem = os.path.splitext(os.path.basename(filename or ""))[0]
+        match = re.search(r"销售\s*([\u4e00-\u9fffA-Za-z0-9_]+)\s*$", stem)
+        if match:
+            return match.group(1).strip()
+        matches = re.findall(r"销售\s*([\u4e00-\u9fffA-Za-z0-9_]+)", stem)
+        return matches[-1].strip() if matches else ""
+
+    def _report_label(report):
+        return f"{report.sales_name} | {report.source_title} | {report.created_at[:10]} | {report.id[:8]}"
+
+    def _filter_reports_for_user(reports, current_user):
+        if not current_user:
+            return reports
+        user_key = current_user.strip()
+        return [
+            r for r in reports
+            if r.sales_name == user_key
+            or getattr(r, "uploader_name", "") == user_key
+            or user_key in (r.source_title or "")
+            or user_key in (r.source_file or "")
+        ]
+
     def _filter_profiles_for_user(profiles, current_user):
         """Filter profiles: user sees own styles + company styles; empty user sees all."""
         if not current_user:
@@ -145,9 +170,10 @@ def create_style_tab(user_dropdown=None) -> None:
                     gr.update(choices=get_style_names(current_user)),
                     gr.update(choices=get_style_names(current_user)),
                     gr.update(choices=get_style_names(current_user)),
-                    _refresh_report_choices(), *_empty)
+                    _refresh_report_choices(current_user=current_user), *_empty)
         try:
             source_filename = os.path.basename(file.name)
+            source_stem = os.path.splitext(source_filename)[0]
             messages = parse_file(file.name)
             if not messages:
                 return ("无法从文件中解析出对话记录，请检查文件格式",
@@ -155,33 +181,25 @@ def create_style_tab(user_dropdown=None) -> None:
                         gr.update(choices=get_style_names(current_user)),
                         gr.update(choices=get_style_names(current_user)),
                         gr.update(choices=get_style_names(current_user)),
-                        _refresh_report_choices(), *_empty)
+                        _refresh_report_choices(current_user=current_user), *_empty)
 
             # Save file to knowledge base
-            import re
+            file_sales_name = _extract_sales_name_from_filename(source_filename)
+            sales_name = file_sales_name or current_user or (style_name.strip() if style_name and style_name.strip() else "") or "未知"
+            report_title = f"销售{sales_name.replace('式', '')}面聊记录（{source_stem}）"
             try:
                 knowledge_store = KnowledgeStore()
+                from storage.knowledge_store import KnowledgeEntry
                 file_content = "\n".join(msg.content for msg in messages[:200])
-                # Determine sales name: current_user > filename > style_name > 未知
-                sales_name = ""
-                if current_user:
-                    sales_name = current_user
-                else:
-                    m = re.search(r"销售(\w+)", source_filename)
-                    if m:
-                        sales_name = m.group(1)
-                    elif style_name and style_name.strip():
-                        sales_name = style_name.strip()
-                if not sales_name:
-                    sales_name = "未知"
-                knowledge_store.save(
+                knowledge_store.save(KnowledgeEntry(
                     category="customer_doc",
-                    title=f"销售{sales_name}面聊记录",
+                    title=report_title,
                     content=file_content,
                     source_file=source_filename,
-                )
+                    uploader_name=sales_name.replace("式", ""),
+                ))
             except Exception:
-                sales_name = current_user or style_name or "未知"
+                file_content = "\n".join(msg.content for msg in messages[:200])
 
             # Generate report FIRST (independent of style slots)
             report = None
@@ -196,8 +214,9 @@ def create_style_tab(user_dropdown=None) -> None:
                     content=file_content,
                     sales_name=sales_name.replace("式", ""),
                     source_file=source_filename,
-                    source_title=f"销售{sales_name.replace('式', '')}面聊记录",
+                    source_title=report_title,
                 )
+                report.uploader_name = sales_name.replace("式", "")
                 report_store.save(report)
                 report_md = _format_report(report)
                 report_ctx = {"report": report, "original_content": file_content[:4000]}
@@ -258,7 +277,7 @@ def create_style_tab(user_dropdown=None) -> None:
                         gr.update(choices=get_style_names(current_user)),
                         gr.update(choices=get_style_names(current_user)),
                         gr.update(choices=get_style_names(current_user)),
-                        _refresh_report_choices(report),
+                        _refresh_report_choices(report, current_user=current_user),
                         report_md, report_ctx, [],
                         gr.update(choices=share_choices, value=share_defaults),
                     )
@@ -273,7 +292,7 @@ def create_style_tab(user_dropdown=None) -> None:
                 gr.update(choices=new_names),
                 gr.update(choices=new_names),
                 gr.update(choices=new_names),
-                _refresh_report_choices(report),
+                _refresh_report_choices(report, current_user=current_user),
                 report_md,
                 report_ctx,
                 [],
@@ -284,9 +303,9 @@ def create_style_tab(user_dropdown=None) -> None:
                     gr.update(choices=get_style_names(current_user)),
                     gr.update(choices=get_style_names(current_user)),
                     gr.update(choices=get_style_names(current_user)),
-                    _refresh_report_choices(), *_empty)
+                    _refresh_report_choices(current_user=current_user), *_empty)
 
-    def import_from_knowledge_base():
+    def import_from_knowledge_base(current_user=""):
         """从知识库中已导入的资料提取销售风格，同名销售自动合并，同时生成面聊汇报。"""
         import re
         from storage.knowledge_store import KnowledgeStore
@@ -315,7 +334,12 @@ def create_style_tab(user_dropdown=None) -> None:
 
         # 从话术库提取风格
         scripts = knowledge_store.list_by_category("script_library")
-        total_items = len(scripts) + len(knowledge_store.list_by_category("customer_doc"))
+        if current_user:
+            scripts = [e for e in scripts if current_user in e.title or current_user in e.source_file or e.uploader_name == current_user]
+        chats_all = knowledge_store.list_by_category("customer_doc")
+        if current_user:
+            chats_all = [e for e in chats_all if current_user in e.title or current_user in e.source_file or e.uploader_name == current_user]
+        total_items = len(scripts) + len(chats_all)
         done = 0
         for entry in scripts:
             match = re.search(r"销售(\w+)", entry.title)
@@ -350,7 +374,7 @@ def create_style_tab(user_dropdown=None) -> None:
             done += 1
 
         # 从面聊记录提取风格 + 生成汇报
-        chats = knowledge_store.list_by_category("customer_doc")
+        chats = chats_all
         for entry in chats:
             match = re.search(r"销售(\w+)", entry.title)
             if not match:
@@ -392,6 +416,7 @@ def create_style_tab(user_dropdown=None) -> None:
                         source_file=entry.source_file,
                         source_title=entry.title,
                     )
+                    report.uploader_name = sales_name
                     report_store.save(report)
                     existing_reports.add(entry.source_file)
                     results.append(f"[汇报] {entry.title}：{report.summary}")
@@ -401,7 +426,7 @@ def create_style_tab(user_dropdown=None) -> None:
                 results.append(f"[跳过] {entry.title}汇报已存在")
             done += 1
 
-        return "\n".join(results), _refresh_styles_table(), _refresh_report_choices()
+        return "\n".join(results), _refresh_styles_table(current_user), _refresh_report_choices(current_user=current_user)
 
     def compare_styles(style_a_name, style_b_name):
         from prompts.style_extraction import STYLE_COMPARISON_PROMPT
@@ -437,15 +462,15 @@ def create_style_tab(user_dropdown=None) -> None:
             traceback.print_exc()
             return f"对比失败：{type(e).__name__}: {str(e)}"
 
-    def _refresh_report_choices(select_report=None):
+    def _refresh_report_choices(select_report=None, current_user=""):
         from storage.report_store import ReportStore
         report_store = ReportStore()
-        reports = report_store.list_all()
+        reports = _filter_reports_for_user(report_store.list_all(), current_user)
         if not reports:
             return gr.update(choices=[], value=None)
-        choices = [f"{r.sales_name} | {r.source_title} | {r.created_at[:10]}" for r in reports]
+        choices = [_report_label(r) for r in reports]
         if select_report:
-            target = f"{select_report.sales_name} | {select_report.source_title} | {select_report.created_at[:10]}"
+            target = _report_label(select_report)
             return gr.update(choices=choices, value=target)
         return gr.update(choices=choices, value=choices[0] if choices else None)
 
@@ -475,7 +500,7 @@ def create_style_tab(user_dropdown=None) -> None:
                 lines.append(f"{i}. {ns}")
         return "\n".join(lines)
 
-    def _load_report_context(report_choice):
+    def _load_report_context(report_choice, current_user=""):
         """根据选择加载汇报上下文（report + 原始对话内容）。"""
         from storage.report_store import ReportStore
         from storage.knowledge_store import KnowledgeStore
@@ -486,9 +511,14 @@ def create_style_tab(user_dropdown=None) -> None:
         parts = report_choice.split(" | ")
         if len(parts) < 2:
             return None
-        target_title = parts[1]
-        report = next((r for r in reports if r.source_title == target_title), None)
+        target_id = parts[-1].strip() if len(parts) >= 4 else ""
+        target_title = parts[1].strip()
+        report = next((r for r in reports if target_id and r.id.startswith(target_id)), None)
         if not report:
+            report = next((r for r in reports if r.source_title == target_title), None)
+        if not report:
+            return None
+        if current_user and report not in _filter_reports_for_user([report], current_user):
             return None
         # 从知识库获取原始对话内容
         knowledge_store = KnowledgeStore()
@@ -499,13 +529,13 @@ def create_style_tab(user_dropdown=None) -> None:
                 break
         return {"report": report, "original_content": original_content}
 
-    def delete_report(report_choice):
+    def delete_report(report_choice, current_user=""):
         """删除选中的面聊汇报，并同步移除对应的面聊记录知识库条目。"""
-        context = _load_report_context(report_choice)
+        context = _load_report_context(report_choice, current_user)
         if not context:
             return (
                 "请选择要删除的汇报",
-                _refresh_report_choices(),
+                _refresh_report_choices(current_user=current_user),
                 None,
                 [],
                 gr.update(choices=[], value=[]),
@@ -536,7 +566,7 @@ def create_style_tab(user_dropdown=None) -> None:
 
         return (
             message,
-            _refresh_report_choices(),
+            _refresh_report_choices(current_user=current_user),
             None,
             [],
             gr.update(choices=[], value=[]),
@@ -544,11 +574,11 @@ def create_style_tab(user_dropdown=None) -> None:
             None,
         )
 
-    def view_report_and_prepare_chat(report_choice):
+    def view_report_and_prepare_chat(report_choice, current_user=""):
         """查看汇报内容，同时加载聊天上下文和已有聊天记录，并生成分享勾选项。"""
         if not report_choice:
             return "暂无汇报", None, [], gr.update(choices=[], value=[])
-        context = _load_report_context(report_choice)
+        context = _load_report_context(report_choice, current_user)
         if not context:
             return "未找到汇报", None, [], gr.update(choices=[], value=[])
         report = context["report"]
@@ -846,7 +876,7 @@ def create_style_tab(user_dropdown=None) -> None:
             from storage.report_store import ReportStore
             report_store_init = ReportStore()
             report_choices = [
-                f"{r.sales_name} | {r.source_title} | {r.created_at[:10]}"
+                _report_label(r)
                 for r in report_store_init.list_all()
             ]
             report_dropdown = gr.Dropdown(
@@ -881,7 +911,7 @@ def create_style_tab(user_dropdown=None) -> None:
 
     preview_btn.click(fn=preview_before_extract, inputs=[file_input], outputs=[preview_result, extract_result])
     extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input, _user_state], outputs=[extract_result, styles_display, delete_style_dropdown, merge_a, merge_b, report_dropdown, report_display, report_context, report_chatbot, share_select])
-    import_kb_btn.click(fn=import_from_knowledge_base, inputs=[], outputs=[import_kb_result, styles_display, report_dropdown])
+    import_kb_btn.click(fn=import_from_knowledge_base, inputs=[_user_state], outputs=[import_kb_result, styles_display, report_dropdown])
 
     def delete_style(label, current_user=""):
         name = _parse_style_name(label)
@@ -917,12 +947,30 @@ def create_style_tab(user_dropdown=None) -> None:
         new_names = get_style_names(current_user)
         return f"已合并为「{merged_name}」", _refresh_styles_table(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
 
+    def refresh_for_user(current_user=""):
+        style_names = get_style_names(current_user)
+        return (
+            _refresh_styles_table(current_user),
+            gr.update(choices=style_names, value=None),
+            gr.update(choices=style_names, value=None),
+            gr.update(choices=style_names, value=None),
+            gr.update(choices=style_names, value=None),
+            gr.update(choices=style_names, value=None),
+            _refresh_report_choices(current_user=current_user),
+        )
+
     delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown, _user_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
     merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b, _user_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
 
     compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
-    view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown], outputs=[report_display, report_context, report_chatbot, share_select])
-    delete_report_btn.click(fn=delete_report, inputs=[report_dropdown], outputs=[report_display, report_dropdown, report_context, report_chatbot, share_select, share_text_output, share_file_output])
+    view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown, _user_state], outputs=[report_display, report_context, report_chatbot, share_select])
+    delete_report_btn.click(fn=delete_report, inputs=[report_dropdown, _user_state], outputs=[report_display, report_dropdown, report_context, report_chatbot, share_select, share_text_output, share_file_output])
+    if user_dropdown is not None:
+        user_dropdown.change(
+            fn=refresh_for_user,
+            inputs=[user_dropdown],
+            outputs=[styles_display, delete_style_dropdown, merge_a, merge_b, style_a, style_b, report_dropdown],
+        )
     report_chat_input.submit(fn=chat_with_report, inputs=[report_chat_input, report_chatbot, report_context], outputs=[report_chat_input, report_chatbot])
     share_copy_btn.click(fn=share_copy_text, inputs=[report_context, report_chatbot, share_select], outputs=[share_text_output])
     share_docx_btn.click(fn=share_export_docx, inputs=[report_context, report_chatbot, share_select], outputs=[share_file_output])
