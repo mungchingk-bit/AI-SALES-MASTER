@@ -140,10 +140,10 @@ def build_main_header():
 
 
 def create_admin_tab():
-    """管理面板内容，返回一个 Column 组件用于控制可见性。非admin时隐藏。"""
+    """管理面板内容。外层 Tab 控制可见性。"""
     user_store = UserStore()
 
-    with gr.Column(visible=False) as admin_col:
+    with gr.Column(visible=True) as admin_col:
         with gr.Row():
             with gr.Column():
                 gr.Markdown("### 添加手机号授权")

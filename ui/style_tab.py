@@ -1067,6 +1067,9 @@ def create_style_tab(user_dropdown=None, login_user_state=None, sales_preview_st
         new_names = get_style_names(current_user)
         return f"已合并为「{merged_name}」", _refresh_styles_table(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
 
+    def show_compare_pending():
+        return "正在分析风格差异，请稍候..."
+
     def refresh_for_user(current_user=""):
         style_names = get_style_names(current_user)
         return (
@@ -1082,7 +1085,11 @@ def create_style_tab(user_dropdown=None, login_user_state=None, sales_preview_st
     delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown, _user_state, _login_state, _sales_preview_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
     merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b, _user_state, _login_state, _sales_preview_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
 
-    compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
+    compare_btn.click(fn=show_compare_pending, inputs=[], outputs=[compare_result]).then(
+        fn=compare_styles,
+        inputs=[style_a, style_b],
+        outputs=[compare_result],
+    )
     view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown, _user_state], outputs=[report_display, report_context, report_chatbot, share_select])
     regenerate_report_btn.click(fn=regenerate_report, inputs=[report_dropdown, _user_state], outputs=[report_display, report_context, report_chatbot, share_select])
     delete_report_btn.click(fn=delete_report, inputs=[report_dropdown, _user_state], outputs=[report_display, report_dropdown, report_context, report_chatbot, share_select, share_text_output, share_file_output])
