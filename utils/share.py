@@ -180,27 +180,36 @@ def generate_image(md_text: str, title: str = "销售大师") -> str:
     if not text:
         text = "（无内容）"
 
-    # Try to find a Chinese font
+    # Try to find a Chinese font. Linux servers need explicit CJK fonts;
+    # otherwise PIL falls back to a default font that cannot render Chinese.
     font_paths = [
         "C:/Windows/Fonts/msyh.ttc",
         "C:/Windows/Fonts/msyhbd.ttc",
         "C:/Windows/Fonts/simhei.ttf",
         "C:/Windows/Fonts/simsun.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
     ]
     font_path = None
     for fp in font_paths:
-        if os.path.exists(fp):
+        if os.path.exists(fp) and _font_can_render_chinese(fp):
             font_path = fp
             break
 
-    try:
-        font = ImageFont.truetype(font_path, 20) if font_path else ImageFont.load_default()
-        title_font = ImageFont.truetype(font_path, 28) if font_path else ImageFont.load_default()
-        small_font = ImageFont.truetype(font_path, 14) if font_path else ImageFont.load_default()
-    except Exception:
-        font = ImageFont.load_default()
-        title_font = font
-        small_font = font
+    if not font_path:
+        raise RuntimeError(
+            "未找到可用中文字体，无法生成中文图片。请在服务器安装 fonts-noto-cjk 或 fonts-wqy-zenhei。"
+        )
+
+    font = ImageFont.truetype(font_path, 20)
+    title_font = ImageFont.truetype(font_path, 28)
+    small_font = ImageFont.truetype(font_path, 14)
 
     width = 800
     padding = 40
@@ -307,6 +316,14 @@ def _wrap_text(text, max_width, draw, font):
     if current:
         lines.append(current)
     return lines if lines else [text]
+
+
+def _font_can_render_chinese(font_path: str) -> bool:
+    try:
+        font = ImageFont.truetype(font_path, 20)
+        return font.getmask("销售汇报").getbbox() is not None
+    except Exception:
+        return False
 
 
 def _build_share_html(md_text: str, title: str) -> str:

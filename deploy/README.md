@@ -41,7 +41,7 @@ bash deploy/setup.sh
 ### 1. 安装依赖
 
 ```bash
-apt update && apt install -y python3.11 python3.11-venv python3.11-dev git tesseract-ocr tesseract-ocr-chi-sim fonts-wqy-zenhei
+apt update && apt install -y python3.11 python3.11-venv python3.11-dev git tesseract-ocr tesseract-ocr-chi-sim fonts-wqy-zenhei fonts-noto-cjk
 ```
 
 ### 2. 克隆项目
