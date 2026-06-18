@@ -178,10 +178,14 @@ class UserStore:
         if len(new_password) < 4:
             return False, "新密码至少4位"
         users = self._load_users()
+        found = False
         for u in users:
             if u["username"] == username or u.get("phone") == username:
                 u["password_hash"] = _hash_password(new_password)
+                found = True
                 break
+        if not found:
+            return False, "用户不存在"
         self._save_users(users)
         return True, f"密码已重置"
 

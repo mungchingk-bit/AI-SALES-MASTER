@@ -67,10 +67,13 @@ class KnowledgeStore:
             if not filename.endswith(".json"):
                 continue
             path = os.path.join(self.knowledge_dir, filename)
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("category") == category:
-                entries.append(KnowledgeEntry.from_dict(data))
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("category") == category:
+                    entries.append(KnowledgeEntry.from_dict(data))
+            except Exception:
+                continue
         return entries
 
     def list_all(self) -> list[KnowledgeEntry]:
@@ -79,8 +82,11 @@ class KnowledgeStore:
             if not filename.endswith(".json"):
                 continue
             path = os.path.join(self.knowledge_dir, filename)
-            with open(path, "r", encoding="utf-8") as f:
-                entries.append(KnowledgeEntry.from_dict(json.load(f)))
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    entries.append(KnowledgeEntry.from_dict(json.load(f)))
+            except Exception:
+                continue
         return sorted(entries, key=lambda e: e.created_at, reverse=True)
 
     def list_by_user(self, user_name: str, is_admin: bool = False) -> list[KnowledgeEntry]:

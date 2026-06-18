@@ -28,8 +28,11 @@ class WeeklyReviewStore:
             if not fname.endswith(".json"):
                 continue
             path = os.path.join(self.dir, fname)
-            with open(path, encoding="utf-8") as f:
-                reviews.append(WeeklyReview.from_dict(json.load(f)))
+            try:
+                with open(path, encoding="utf-8") as f:
+                    reviews.append(WeeklyReview.from_dict(json.load(f)))
+            except Exception:
+                continue
         reviews.sort(key=lambda r: r.created_at, reverse=True)
         return reviews
 

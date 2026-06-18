@@ -79,8 +79,10 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         existing = _get_eval_store().load_by_session(full_id)
         if existing:
             report = existing
+            if not report.conversation_summary or not report.deal_progression:
+                report = _get_evaluator().evaluate(full_id, include_extras=True, extract_phrases=False) or report
         else:
-            report = _get_evaluator().evaluate(full_id)
+            report = _get_evaluator().evaluate(full_id, include_extras=True, extract_phrases=False)
         if not report:
             return "", "评估生成失败", "", ""
         chart = _generate_radar_chart(report)
@@ -429,7 +431,25 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         choices = get_session_choices(current_user)
         return gr.update(choices=choices, value=choices[0] if choices else None)
 
+    def show_evaluation_pending():
+        defaults = []
+        for _ in config.EVAL_DIMENSIONS:
+            defaults.extend([5, ""])
+        return (
+            "",
+            "正在生成或补齐评估报告，请稍候...",
+            "正在补齐实战总结...",
+            "正在补齐签单路径分析...",
+            None,
+            gr.update(choices=[], value=[]),
+            *defaults,
+        )
+
     eval_btn.click(
+        fn=show_evaluation_pending,
+        inputs=[],
+        outputs=[radar_chart, report_display, summary_display, progression_display, current_eval_report, eval_share_select] + correction_components,
+    ).then(
         fn=generate_and_store_evaluation,
         inputs=[session_dropdown, user_dropdown or gr.State("")],
         outputs=[radar_chart, report_display, summary_display, progression_display, current_eval_report, eval_share_select] + correction_components,

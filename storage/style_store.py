@@ -60,9 +60,12 @@ class StyleStore:
         for filename in os.listdir(self.styles_dir):
             if filename.endswith(".json"):
                 path = os.path.join(self.styles_dir, filename)
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                profiles.append(StyleProfile.from_dict(data))
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    profiles.append(StyleProfile.from_dict(data))
+                except Exception:
+                    continue
         return profiles
 
     def delete(self, profile_id: str) -> bool:

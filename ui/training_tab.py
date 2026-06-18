@@ -360,8 +360,6 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
         profiles = style_store.list_all()
         choices = ["不指定（默认顾问式）"]
         for p in profiles:
-            if current_user and current_user not in p.name:
-                continue
             choices.append(p.name)
         return choices
 

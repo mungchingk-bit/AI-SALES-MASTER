@@ -27,10 +27,13 @@ class EvaluationStore:
         for filename in os.listdir(self.evaluations_dir):
             if filename.endswith(".json"):
                 path = os.path.join(self.evaluations_dir, filename)
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if data.get("session_id") == session_id:
-                    return EvaluationReport.from_dict(data)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if data.get("session_id") == session_id:
+                        return EvaluationReport.from_dict(data)
+                except Exception:
+                    continue
         return None
 
     def list_all(self) -> list[EvaluationReport]:
@@ -40,9 +43,12 @@ class EvaluationStore:
         for filename in os.listdir(self.evaluations_dir):
             if filename.endswith(".json"):
                 path = os.path.join(self.evaluations_dir, filename)
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                reports.append(EvaluationReport.from_dict(data))
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    reports.append(EvaluationReport.from_dict(data))
+                except Exception:
+                    continue
         return sorted(reports, key=lambda r: r.created_at, reverse=True)
 
     def build_correction_guide(self, user: str = "", max_chars: int = 2000) -> str:

@@ -30,8 +30,11 @@ class ReportStore:
         for filename in os.listdir(self.reports_dir):
             if filename.endswith(".json"):
                 path = os.path.join(self.reports_dir, filename)
-                with open(path, "r", encoding="utf-8") as f:
-                    reports.append(ConversationReport.from_dict(json.load(f)))
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        reports.append(ConversationReport.from_dict(json.load(f)))
+                except Exception:
+                    continue
         return sorted(reports, key=lambda r: r.created_at, reverse=True)
 
     def list_by_sales(self, sales_name: str) -> list[ConversationReport]:

@@ -43,7 +43,7 @@ def build_login_ui():
         if not phone or not password:
             return (None, gr.update(visible=True, value="**请输入手机号和密码**"),
                     gr.update(visible=False), gr.update(visible=True), "", gr.update(choices=[]),
-                    gr.update(visible=False))
+                    gr.update(visible=False, value=False), gr.update(visible=False))
         if user_store.authenticate(phone, password):
             user = user_store.get_user(phone)
             display = user["display_name"]
@@ -58,26 +58,27 @@ def build_login_ui():
                 gr.update(visible=False),
                 f"**欢迎，{display}！** 角色：{role_label}",
                 gr.update(choices=user_choices, value=display if user["role"] == "sales" else None, interactive=is_admin),
+                gr.update(visible=is_admin, value=False),
                 gr.update(visible=is_admin),
             )
         return (None, gr.update(visible=True, value="**手机号或密码错误**"),
                 gr.update(visible=False), gr.update(visible=True), "", gr.update(choices=[]),
-                gr.update(visible=False))
+                gr.update(visible=False, value=False), gr.update(visible=False))
 
     def do_register(phone, display_name, password, password2):
         if not phone or not password:
             return (None, gr.update(visible=True, value="**请填写手机号和密码**"),
                     gr.update(visible=False), gr.update(visible=True), "", gr.update(choices=[]),
-                    gr.update(visible=False))
+                    gr.update(visible=False, value=False), gr.update(visible=False))
         if password != password2:
             return (None, gr.update(visible=True, value="**两次输入的密码不一致**"),
                     gr.update(visible=False), gr.update(visible=True), "", gr.update(choices=[]),
-                    gr.update(visible=False))
+                    gr.update(visible=False, value=False), gr.update(visible=False))
         ok, msg = user_store.register(phone, display_name, password)
         if not ok:
             return (None, gr.update(visible=True, value=f"**{msg}**"),
                     gr.update(visible=False), gr.update(visible=True), "", gr.update(choices=[]),
-                    gr.update(visible=False))
+                    gr.update(visible=False, value=False), gr.update(visible=False))
         user = user_store.get_user(phone)
         display = user["display_name"]
         sales_names = [u["display_name"] for u in user_store.list_sales()]
@@ -88,6 +89,7 @@ def build_login_ui():
             gr.update(visible=False),
             f"**欢迎，{display}！** 注册成功",
             gr.update(choices=[display], value=display, interactive=False),
+            gr.update(visible=False, value=False),
             gr.update(visible=False),  # registered users are always "sales" role, no admin tab
         )
 

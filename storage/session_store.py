@@ -30,9 +30,12 @@ class SessionStore:
         for filename in os.listdir(self.sessions_dir):
             if filename.endswith(".json"):
                 path = os.path.join(self.sessions_dir, filename)
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                sessions.append(TrainingSession.from_dict(data))
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    sessions.append(TrainingSession.from_dict(data))
+                except Exception:
+                    continue
         return sorted(sessions, key=lambda s: s.started_at, reverse=True)
 
     def delete(self, session_id: str) -> bool:
