@@ -39,7 +39,7 @@ def _dedup_styles(store):
             store.save(merged)
 
 
-def create_style_tab(user_dropdown=None, login_user_state=None) -> None:
+def create_style_tab(user_dropdown=None, login_user_state=None, sales_preview_state=None) -> None:
     print("[STYLE_TAB] create_style_tab called - v2 code loaded")
     store = StyleStore()
     _dedup_styles(store)
@@ -154,6 +154,9 @@ def create_style_tab(user_dropdown=None, login_user_state=None) -> None:
             return bool(user and user.get("role") == "admin")
         except Exception:
             return False
+
+    def _can_manage_styles(login_username, sales_preview=False):
+        return _is_admin_login(login_username) and not bool(sales_preview)
 
     def preview_before_extract(file):
         from utils.file_parser import parse_file
@@ -1018,13 +1021,14 @@ def create_style_tab(user_dropdown=None, login_user_state=None) -> None:
 
     _user_state = user_dropdown or gr.State("")
     _login_state = login_user_state or gr.State("")
+    _sales_preview_state = sales_preview_state or gr.State(False)
 
     preview_btn.click(fn=preview_before_extract, inputs=[file_input], outputs=[preview_result, extract_result])
     extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input, _user_state], outputs=[extract_result, styles_display, delete_style_dropdown, merge_a, merge_b, report_dropdown, report_display, report_context, report_chatbot, share_select])
     import_kb_btn.click(fn=import_from_knowledge_base, inputs=[_user_state], outputs=[import_kb_result, styles_display, report_dropdown])
 
-    def delete_style(label, current_user="", login_username=""):
-        if not _is_admin_login(login_username):
+    def delete_style(label, current_user="", login_username="", sales_preview=False):
+        if not _can_manage_styles(login_username, sales_preview):
             style_names = get_style_names(current_user)
             return "仅管理员可以删除风格", _refresh_styles_table(current_user), gr.update(choices=style_names), gr.update(choices=style_names), gr.update(choices=style_names)
         name = _parse_style_name(label)
@@ -1042,8 +1046,8 @@ def create_style_tab(user_dropdown=None, login_user_state=None) -> None:
             return f"已删除{deleted_count}个「{name}」", _refresh_styles_table(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
         return f"未找到「{name}」", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
 
-    def merge_styles(label_a, label_b, current_user="", login_username=""):
-        if not _is_admin_login(login_username):
+    def merge_styles(label_a, label_b, current_user="", login_username="", sales_preview=False):
+        if not _can_manage_styles(login_username, sales_preview):
             style_names = get_style_names(current_user)
             return "仅管理员可以合并风格", _refresh_styles_table(current_user), gr.update(choices=style_names), gr.update(choices=style_names), gr.update(choices=style_names)
         name_a = _parse_style_name(label_a)
@@ -1075,8 +1079,8 @@ def create_style_tab(user_dropdown=None, login_user_state=None) -> None:
             _refresh_report_choices(current_user=current_user),
         )
 
-    delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown, _user_state, _login_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
-    merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b, _user_state, _login_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+    delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown, _user_state, _login_state, _sales_preview_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+    merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b, _user_state, _login_state, _sales_preview_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
 
     compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
     view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown, _user_state], outputs=[report_display, report_context, report_chatbot, share_select])

@@ -130,8 +130,13 @@ def build_main_header():
             scale=2,
             allow_custom_value=True,
         )
+        sales_preview = gr.Checkbox(
+            label="销售视角预览",
+            value=False,
+            scale=1,
+        )
 
-    return {"user_dropdown": user_dropdown, "welcome_md": welcome_md}
+    return {"user_dropdown": user_dropdown, "welcome_md": welcome_md, "sales_preview": sales_preview}
 
 
 def create_admin_tab():
