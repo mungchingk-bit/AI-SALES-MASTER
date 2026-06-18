@@ -499,6 +499,51 @@ def create_style_tab(user_dropdown=None) -> None:
                 break
         return {"report": report, "original_content": original_content}
 
+    def delete_report(report_choice):
+        """删除选中的面聊汇报，并同步移除对应的面聊记录知识库条目。"""
+        context = _load_report_context(report_choice)
+        if not context:
+            return (
+                "请选择要删除的汇报",
+                _refresh_report_choices(),
+                None,
+                [],
+                gr.update(choices=[], value=[]),
+                "",
+                None,
+            )
+
+        from storage.report_store import ReportStore
+        from storage.knowledge_store import KnowledgeStore
+
+        report = context["report"]
+        report_store = ReportStore()
+        deleted_report = report_store.delete(report.id)
+
+        deleted_entries = 0
+        knowledge_store = KnowledgeStore()
+        for entry in knowledge_store.list_by_category("customer_doc"):
+            if entry.source_file == report.source_file or entry.title == report.source_title:
+                if knowledge_store.delete(entry.id):
+                    deleted_entries += 1
+
+        if not deleted_report:
+            message = "删除失败：未找到该汇报"
+        elif deleted_entries:
+            message = f"已删除汇报「{report.source_title}」，并移除{deleted_entries}条对应面聊记录"
+        else:
+            message = f"已删除汇报「{report.source_title}」"
+
+        return (
+            message,
+            _refresh_report_choices(),
+            None,
+            [],
+            gr.update(choices=[], value=[]),
+            "",
+            None,
+        )
+
     def view_report_and_prepare_chat(report_choice):
         """查看汇报内容，同时加载聊天上下文和已有聊天记录，并生成分享勾选项。"""
         if not report_choice:
@@ -809,7 +854,9 @@ def create_style_tab(user_dropdown=None) -> None:
                 value=report_choices[0] if report_choices else None,
                 label="选择汇报",
             )
-            view_report_btn = gr.Button("查看汇报", variant="primary")
+            with gr.Row():
+                view_report_btn = gr.Button("查看汇报", variant="primary", scale=3)
+                delete_report_btn = gr.Button("删除汇报", variant="stop", scale=1)
             report_display = gr.Markdown()
             report_context = gr.State(None)
 
@@ -875,6 +922,7 @@ def create_style_tab(user_dropdown=None) -> None:
 
     compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
     view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown], outputs=[report_display, report_context, report_chatbot, share_select])
+    delete_report_btn.click(fn=delete_report, inputs=[report_dropdown], outputs=[report_display, report_dropdown, report_context, report_chatbot, share_select, share_text_output, share_file_output])
     report_chat_input.submit(fn=chat_with_report, inputs=[report_chat_input, report_chatbot, report_context], outputs=[report_chat_input, report_chatbot])
     share_copy_btn.click(fn=share_copy_text, inputs=[report_context, report_chatbot, share_select], outputs=[share_text_output])
     share_docx_btn.click(fn=share_export_docx, inputs=[report_context, report_chatbot, share_select], outputs=[share_file_output])
