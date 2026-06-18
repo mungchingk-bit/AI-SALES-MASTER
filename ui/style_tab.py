@@ -127,6 +127,18 @@ def create_style_tab(user_dropdown=None) -> None:
             or user_key in (r.source_file or "")
         ]
 
+    def _is_placeholder_report(report) -> bool:
+        summary = report.summary or ""
+        return (
+            "AI面聊汇报暂时生成失败" in summary
+            or "文件已上传并保存" in summary
+            or not (report.highlights or report.improvements or report.corrected_scripts or report.next_steps)
+        )
+
+    def _is_rate_limit_error(error: Exception) -> bool:
+        text = str(error).lower()
+        return "429" in text or "too many requests" in text or "rate limit" in text
+
     def _filter_profiles_for_user(profiles, current_user):
         """Filter profiles: user sees own styles + company styles; empty user sees all."""
         if not current_user:
@@ -209,6 +221,7 @@ def create_style_tab(user_dropdown=None) -> None:
             share_choices = []
             share_defaults = []
             report_error = ""
+            report_rate_limited = False
             try:
                 analyzer = ConversationAnalyzer()
                 report_store = ReportStore()
@@ -221,7 +234,7 @@ def create_style_tab(user_dropdown=None) -> None:
                 report.uploader_name = sales_name.replace("式", "")
                 report_store.save(report)
                 report_md = _format_report(report)
-                report_ctx = {"report": report, "original_content": file_content[:4000]}
+                report_ctx = {"report": report, "original_content": file_content}
                 if report.summary:
                     share_choices.append("整体评价")
                     share_defaults.append("整体评价")
@@ -239,6 +252,7 @@ def create_style_tab(user_dropdown=None) -> None:
                     share_defaults.append("下一步行动建议")
             except Exception as e:
                 report_error = str(e)
+                report_rate_limited = _is_rate_limit_error(e)
                 report = ConversationReport(
                     sales_name=sales_name.replace("式", ""),
                     source_file=source_filename,
@@ -251,62 +265,65 @@ def create_style_tab(user_dropdown=None) -> None:
                 )
                 ReportStore().save(report)
                 report_md = _format_report(report)
-                report_ctx = {"report": report, "original_content": file_content[:4000]}
+                report_ctx = {"report": report, "original_content": file_content}
                 share_choices.append("整体评价")
                 share_defaults.append("整体评价")
 
             # Extract style
             style_msg = ""
-            try:
-                extractor = StyleExtractor()
-                profile = extractor.extract(messages, source_file=source_filename)
-                # Name the style: custom input > sales_name式 > LLM-generated
-                if style_name and style_name.strip():
-                    profile.name = style_name.strip()
-                elif sales_name and sales_name != "未知":
-                    profile.name = f"{sales_name}式"
+            if report_rate_limited:
+                style_msg = "文件和基础汇报已保存。由于模型接口刚刚限流，本次先跳过风格提取，避免连续请求继续触发限流。"
+            else:
+                try:
+                    extractor = StyleExtractor()
+                    profile = extractor.extract(messages, source_file=source_filename)
+                    # Name the style: custom input > sales_name式 > LLM-generated
+                    if style_name and style_name.strip():
+                        profile.name = style_name.strip()
+                    elif sales_name and sales_name != "未知":
+                        profile.name = f"{sales_name}式"
 
-                # Auto-merge with existing style: match by normalized name or sales_name
-                existing = store.list_all()
-                existing_match = None
-                normalized_new = _normalize_style_name(profile.name)
-                existing_match = next(
-                    (p for p in existing if _normalize_style_name(p.name) == normalized_new),
-                    None
-                )
-                if not existing_match and sales_name and sales_name != "未知":
-                    user_key = sales_name.replace("面聊", "")
+                    # Auto-merge with existing style: match by normalized name or sales_name
+                    existing = store.list_all()
+                    existing_match = None
+                    normalized_new = _normalize_style_name(profile.name)
                     existing_match = next(
-                        (p for p in existing if p.name.replace("式", "").replace("面聊", "") == user_key),
+                        (p for p in existing if _normalize_style_name(p.name) == normalized_new),
                         None
                     )
-
-                if existing_match:
-                    store.save(profile)
-                    merged_name = _normalize_style_name(existing_match.name)
-                    merged = store.merge(existing_match, profile, merged_name=merged_name)
-                    profile = merged
-                    style_msg = f"风格「{profile.name}」已与同名档案合并\n{profile.description}"
-                else:
-                    if len(existing) >= config.MAX_STYLE_SLOTS:
-                        return (
-                            "面聊汇报已生成。风格提取成功但槽位已满，请先删除已有风格再提取",
-                            _refresh_styles_table(current_user),
-                            gr.update(choices=get_style_names(current_user)),
-                            gr.update(choices=get_style_names(current_user)),
-                            gr.update(choices=get_style_names(current_user)),
-                            _refresh_report_choices(report, current_user=current_user),
-                            report_md, report_ctx, [],
-                            gr.update(choices=share_choices, value=share_defaults),
+                    if not existing_match and sales_name and sales_name != "未知":
+                        user_key = sales_name.replace("面聊", "")
+                        existing_match = next(
+                            (p for p in existing if p.name.replace("式", "").replace("面聊", "") == user_key),
+                            None
                         )
-                    store.save(profile)
-                    provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
-                    style_msg = f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}"
-            except Exception as e:
-                style_msg = (
-                    "文件和面聊汇报已保存，但风格提取暂时失败。"
-                    f"原因：{str(e)[:160]}。可稍后在流量恢复后重新上传或从知识库导入。"
-                )
+
+                    if existing_match:
+                        store.save(profile)
+                        merged_name = _normalize_style_name(existing_match.name)
+                        merged = store.merge(existing_match, profile, merged_name=merged_name)
+                        profile = merged
+                        style_msg = f"风格「{profile.name}」已与同名档案合并\n{profile.description}"
+                    else:
+                        if len(existing) >= config.MAX_STYLE_SLOTS:
+                            return (
+                                "面聊汇报已生成。风格提取成功但槽位已满，请先删除已有风格再提取",
+                                _refresh_styles_table(current_user),
+                                gr.update(choices=get_style_names(current_user)),
+                                gr.update(choices=get_style_names(current_user)),
+                                gr.update(choices=get_style_names(current_user)),
+                                _refresh_report_choices(report, current_user=current_user),
+                                report_md, report_ctx, [],
+                                gr.update(choices=share_choices, value=share_defaults),
+                            )
+                        store.save(profile)
+                        provider_label = "本地模型" if config.LLM_PROVIDER == "ollama" else "云端API（已脱敏）"
+                        style_msg = f"风格「{profile.name}」提取成功！({provider_label})\n{profile.description}"
+                except Exception as e:
+                    style_msg = (
+                        "文件和面聊汇报已保存，但风格提取暂时失败。"
+                        f"原因：{str(e)[:160]}。可稍后在流量恢复后重新上传或从知识库导入。"
+                    )
 
             new_names = get_style_names(current_user)
             report_note = ""
@@ -355,7 +372,9 @@ def create_style_tab(user_dropdown=None) -> None:
                 existing_sources[key] = set()
             for src in (p.source_file or "").split(" + "):
                 existing_sources[key].add(src.strip())
-        existing_reports = {r.source_file for r in report_store.list_all()}
+        existing_report_by_source = {}
+        for r in report_store.list_all():
+            existing_report_by_source.setdefault(r.source_file, r)
         results = []
 
         # 从话术库提取风格
@@ -434,7 +453,8 @@ def create_style_tab(user_dropdown=None) -> None:
                     results.append(f"[失败] {entry.title}: {str(e)}")
 
             # 生成面聊汇报
-            if entry.source_file not in existing_reports:
+            existing_report = existing_report_by_source.get(entry.source_file)
+            if not existing_report or _is_placeholder_report(existing_report):
                 try:
                     report = analyzer.analyze(
                         content=entry.content,
@@ -443,8 +463,12 @@ def create_style_tab(user_dropdown=None) -> None:
                         source_title=entry.title,
                     )
                     report.uploader_name = sales_name
+                    if existing_report:
+                        report.id = existing_report.id
+                        report.created_at = existing_report.created_at
+                        report.chat_history = existing_report.chat_history
                     report_store.save(report)
-                    existing_reports.add(entry.source_file)
+                    existing_report_by_source[entry.source_file] = report
                     results.append(f"[汇报] {entry.title}：{report.summary}")
                 except Exception as e:
                     results.append(f"[汇报失败] {entry.title}: {str(e)}")
@@ -551,7 +575,7 @@ def create_style_tab(user_dropdown=None) -> None:
         original_content = ""
         for entry in knowledge_store.list_by_category("customer_doc"):
             if entry.source_file == report.source_file or entry.title == report.source_title:
-                original_content = entry.content[:4000]
+                original_content = entry.content
                 break
         return {"report": report, "original_content": original_content}
 
