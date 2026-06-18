@@ -39,14 +39,13 @@ def _dedup_styles(store):
             store.save(merged)
 
 
-def create_style_tab(user_dropdown=None) -> None:
+def create_style_tab(user_dropdown=None, login_user_state=None) -> None:
     print("[STYLE_TAB] create_style_tab called - v2 code loaded")
     store = StyleStore()
     _dedup_styles(store)
 
     def get_style_names(current_user=""):
         profiles = store.list_all()
-        profiles = _filter_profiles_for_user(profiles, current_user)
         return [f"{p.name} ({p.id[:6]})" for p in profiles]
 
     def _parse_style_name(label):
@@ -58,7 +57,6 @@ def create_style_tab(user_dropdown=None) -> None:
     def _refresh_styles_table(current_user=""):
         """Generate HTML table with style names as columns, attributes as rows, sticky header."""
         profiles = store.list_all()
-        profiles = _filter_profiles_for_user(profiles, current_user)
         if not profiles:
             return '<div style="color:#999;text-align:center;padding:20px;">暂无风格档案</div>'
         style_names = [p.name for p in profiles]
@@ -146,6 +144,16 @@ def create_style_tab(user_dropdown=None) -> None:
         user_key = current_user.replace("面聊", "")
         company_styles = {"栀夏式"}
         return [p for p in profiles if user_key in p.name or p.name in company_styles]
+
+    def _is_admin_login(login_username):
+        if not login_username:
+            return False
+        try:
+            from storage.user_store import UserStore
+            user = UserStore().get_user(login_username)
+            return bool(user and user.get("role") == "admin")
+        except Exception:
+            return False
 
     def preview_before_extract(file):
         from utils.file_parser import parse_file
@@ -1009,12 +1017,16 @@ def create_style_tab(user_dropdown=None) -> None:
             )
 
     _user_state = user_dropdown or gr.State("")
+    _login_state = login_user_state or gr.State("")
 
     preview_btn.click(fn=preview_before_extract, inputs=[file_input], outputs=[preview_result, extract_result])
     extract_btn.click(fn=upload_and_extract, inputs=[file_input, style_name_input, _user_state], outputs=[extract_result, styles_display, delete_style_dropdown, merge_a, merge_b, report_dropdown, report_display, report_context, report_chatbot, share_select])
     import_kb_btn.click(fn=import_from_knowledge_base, inputs=[_user_state], outputs=[import_kb_result, styles_display, report_dropdown])
 
-    def delete_style(label, current_user=""):
+    def delete_style(label, current_user="", login_username=""):
+        if not _is_admin_login(login_username):
+            style_names = get_style_names(current_user)
+            return "仅管理员可以删除风格", _refresh_styles_table(current_user), gr.update(choices=style_names), gr.update(choices=style_names), gr.update(choices=style_names)
         name = _parse_style_name(label)
         if not name:
             return "请选择要删除的风格", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
@@ -1030,7 +1042,10 @@ def create_style_tab(user_dropdown=None) -> None:
             return f"已删除{deleted_count}个「{name}」", _refresh_styles_table(current_user), gr.update(choices=new_names), gr.update(choices=new_names), gr.update(choices=new_names)
         return f"未找到「{name}」", _refresh_styles_table(current_user), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user)), gr.update(choices=get_style_names(current_user))
 
-    def merge_styles(label_a, label_b, current_user=""):
+    def merge_styles(label_a, label_b, current_user="", login_username=""):
+        if not _is_admin_login(login_username):
+            style_names = get_style_names(current_user)
+            return "仅管理员可以合并风格", _refresh_styles_table(current_user), gr.update(choices=style_names), gr.update(choices=style_names), gr.update(choices=style_names)
         name_a = _parse_style_name(label_a)
         name_b = _parse_style_name(label_b)
         if not name_a or not name_b:
@@ -1060,8 +1075,8 @@ def create_style_tab(user_dropdown=None) -> None:
             _refresh_report_choices(current_user=current_user),
         )
 
-    delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown, _user_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
-    merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b, _user_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+    delete_style_btn.click(fn=delete_style, inputs=[delete_style_dropdown, _user_state, _login_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
+    merge_style_btn.click(fn=merge_styles, inputs=[merge_a, merge_b, _user_state, _login_state], outputs=[style_action_result, styles_display, delete_style_dropdown, merge_a, merge_b])
 
     compare_btn.click(fn=compare_styles, inputs=[style_a, style_b], outputs=[compare_result])
     view_report_btn.click(fn=view_report_and_prepare_chat, inputs=[report_dropdown, _user_state], outputs=[report_display, report_context, report_chatbot, share_select])

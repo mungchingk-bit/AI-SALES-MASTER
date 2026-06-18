@@ -28,7 +28,7 @@ def create_app() -> gr.Blocks:
                     create_training_tab(header["user_dropdown"], login["logged_in_user"])
                 with gr.Tab("风格管理"):
                     from ui.style_tab import create_style_tab
-                    create_style_tab(header["user_dropdown"])
+                    create_style_tab(header["user_dropdown"], login["logged_in_user"])
                 with gr.Tab("评估报告"):
                     from ui.evaluation_tab import create_evaluation_tab
                     create_evaluation_tab(header["user_dropdown"])
