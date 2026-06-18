@@ -15,6 +15,8 @@ class TrainingSession:
     receptivity_history: list = field(default_factory=list)
     status: str = "active"  # "active" | "completed" | "abandoned"
     user: str = ""  # 销售姓名，用于多用户隔离
+    started_by_role: str = ""  # "admin" | "sales"
+    style_contributed: bool = False
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     ended_at: str | None = None
@@ -39,6 +41,8 @@ class TrainingSession:
             "receptivity_history": self.receptivity_history,
             "status": self.status,
             "user": self.user,
+            "started_by_role": self.started_by_role,
+            "style_contributed": self.style_contributed,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "end_reason": self.end_reason,
@@ -56,6 +60,8 @@ class TrainingSession:
             receptivity_history=data.get("receptivity_history", []),
             status=data.get("status", "active"),
             user=data.get("user", ""),
+            started_by_role=data.get("started_by_role", ""),
+            style_contributed=data.get("style_contributed", False),
             started_at=data.get("started_at", datetime.now().isoformat()),
             ended_at=data.get("ended_at"),
             end_reason=data.get("end_reason", ""),

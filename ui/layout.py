@@ -25,7 +25,7 @@ def create_app() -> gr.Blocks:
                     admin_content = create_admin_tab()
                 with gr.Tab("训练场"):
                     from ui.training_tab import create_training_tab
-                    create_training_tab(header["user_dropdown"])
+                    create_training_tab(header["user_dropdown"], login["logged_in_user"])
                 with gr.Tab("风格管理"):
                     from ui.style_tab import create_style_tab
                     create_style_tab(header["user_dropdown"])

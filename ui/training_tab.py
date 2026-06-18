@@ -10,6 +10,7 @@ _style_store = None
 _evaluator = None
 _eval_store = None
 _session_store = None
+_style_extractor = None
 
 
 def _get_training_mgr():
@@ -50,6 +51,77 @@ def _get_session_store():
         from storage.session_store import SessionStore
         _session_store = SessionStore()
     return _session_store
+
+
+def _get_style_extractor():
+    global _style_extractor
+    if _style_extractor is None:
+        from core.style_extractor import StyleExtractor
+        _style_extractor = StyleExtractor()
+    return _style_extractor
+
+
+def _get_login_role(login_username: str | None) -> str:
+    if not login_username:
+        return ""
+    try:
+        from storage.user_store import UserStore
+        user = UserStore().get_user(login_username)
+        return user.get("role", "") if user else ""
+    except Exception:
+        return ""
+
+
+def _find_style_for_salesperson(salesperson: str):
+    if not salesperson:
+        return None
+    for profile in _get_style_store().list_all():
+        if salesperson in (profile.name or ""):
+            return profile
+    return None
+
+
+def _update_style_from_training_session(session_id: str) -> None:
+    session = _get_session_store().load(session_id)
+    if not session or getattr(session, "style_contributed", False):
+        return
+    if getattr(session, "started_by_role", "") == "admin":
+        return
+    if not getattr(session, "user", "") or session.mode != "customer":
+        return
+
+    sales_messages = [
+        msg for msg in session.conversation
+        if msg.role == "user" and (msg.content or "").strip()
+    ]
+    if len(sales_messages) < 2:
+        return
+
+    source_file = f"training_{session.started_at[:10]}_{session.id[:8]}"
+    profile = _get_style_extractor().extract(session.conversation, source_file=source_file)
+    profile.name = f"{session.user}式"
+    profile.source_file = source_file
+
+    existing = _find_style_for_salesperson(session.user)
+    if existing:
+        _get_style_store().merge(existing, profile, merged_name=f"{session.user}式")
+    else:
+        _get_style_store().save(profile)
+
+    session.style_contributed = True
+    _get_session_store().save(session)
+
+
+def _run_post_training_tasks(session_id: str) -> None:
+    try:
+        evaluator = _get_evaluator()
+        evaluator.evaluate(session_id)
+    except Exception:
+        pass
+    try:
+        _update_style_from_training_session(session_id)
+    except Exception:
+        pass
 
 
 def _get_unfinished_choices(current_user=""):
@@ -268,10 +340,11 @@ def _format_brief_summary(session) -> str:
     return "\n".join(lines)
 
 
-def create_training_tab(user_dropdown=None):
+def create_training_tab(user_dropdown=None, login_user_state=None):
     style_store = _get_style_store()
 
     current_session_id = gr.State(None)
+    login_user_state = login_user_state or gr.State(None)
 
     def get_style_choices(current_user=""):
         profiles = style_store.list_all()
@@ -282,7 +355,7 @@ def create_training_tab(user_dropdown=None):
             choices.append(p.name)
         return choices
 
-    def start_session(mode, style_name, wedding_type, difficulty, custom_notes, current_user):
+    def start_session(mode, style_name, wedding_type, difficulty, custom_notes, current_user, login_username):
         from prompts.customer_simulation import build_diverse_scenario
         from storage.scenario_history_store import ScenarioHistoryStore
 
@@ -333,6 +406,7 @@ def create_training_tab(user_dropdown=None):
             style_profile_id=style_profile_id,
         )
         session.user = current_user or ""
+        session.started_by_role = _get_login_role(login_username)
         training_mgr.session_store.save(session)
 
         if session.mode == "customer":
@@ -382,15 +456,7 @@ def create_training_tab(user_dropdown=None):
         if end_reason:
             brief = _format_brief_summary(session)
 
-            # Generate evaluation in a background thread so UI doesn't freeze
-            def _bg_evaluate(sid):
-                try:
-                    evaluator = _get_evaluator()
-                    evaluator.evaluate(sid)
-                except Exception:
-                    pass
-
-            Thread(target=_bg_evaluate, args=(session_id,), daemon=True).start()
+            Thread(target=_run_post_training_tasks, args=(session_id,), daemon=True).start()
 
             return (
                 chat_history, "", "已结束", receptivity_text,
@@ -436,14 +502,7 @@ def create_training_tab(user_dropdown=None):
         # Show brief summary immediately, generate full report in background
         brief = _format_brief_summary(session)
 
-        def _bg_evaluate(sid):
-            try:
-                evaluator = _get_evaluator()
-                evaluator.evaluate(sid)
-            except Exception:
-                pass
-
-        Thread(target=_bg_evaluate, args=(session_id,), daemon=True).start()
+        Thread(target=_run_post_training_tasks, args=(session_id,), daemon=True).start()
 
         return (
             f"训练已结束！共{turn_count}轮对话。详细评估报告正在后台生成，稍后可在「评估报告」中查看。",
@@ -628,7 +687,7 @@ def create_training_tab(user_dropdown=None):
     # --- Event bindings ---
     start_btn.click(
         fn=start_session,
-        inputs=[mode_radio, style_dropdown, wedding_type_dropdown, difficulty_radio, custom_notes, user_dropdown],
+        inputs=[mode_radio, style_dropdown, wedding_type_dropdown, difficulty_radio, custom_notes, user_dropdown, login_user_state],
         outputs=[current_session_id, chatbot, phase_display, receptivity_display,
                  msg_input, send_btn, end_btn, start_btn, status_text, summary_display,
                  unfinished_dropdown, history_dropdown],
