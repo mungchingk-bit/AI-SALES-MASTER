@@ -182,6 +182,9 @@ def generate_image(md_text: str, title: str = "销售大师") -> str:
         report_title = title
     if not sections and not meta_lines:
         sections = [{"title": "汇报内容", "lines": ["（无内容）"]}]
+    is_evaluation = "训练评估" in title or "训练评估" in report_title
+    hero_label = "训练评估" if is_evaluation else "面聊复盘"
+    hero_subtitle = "Training Review" if is_evaluation else "Conversation Review"
 
     width = 1080
     card_width = 760
@@ -224,7 +227,9 @@ def generate_image(md_text: str, title: str = "销售大师") -> str:
 
     # Side marks inspired by editorial posters.
     draw.text((56, 90), "AI SALES MASTER", fill="#F5F7F8", font=fonts["label"])
-    draw.text((width - 210, height - 310), "@Kela Moment", fill="#F5F7F8", font=fonts["label"])
+    side_label = "@Kela Moment"
+    side_bbox = draw.textbbox((0, 0), side_label, font=fonts["label"])
+    draw.text((width - (side_bbox[2] - side_bbox[0]) - 38, height - 310), side_label, fill="#F5F7F8", font=fonts["label"])
 
     panel_y = top_margin
     draw.rounded_rectangle(
@@ -257,8 +262,8 @@ def generate_image(md_text: str, title: str = "销售大师") -> str:
         fill="#C99544",
         width=4,
     )
-    draw.text((content_x, hero_y + 52), "面聊复盘", fill="#235375", font=fonts["subtitle"])
-    draw.text((content_x, hero_y + 86), "Conversation Review", fill="#6E8795", font=fonts["small"])
+    draw.text((content_x, hero_y + 52), hero_label, fill="#235375", font=fonts["subtitle"])
+    draw.text((content_x, hero_y + 86), hero_subtitle, fill="#6E8795", font=fonts["small"])
 
     y = panel_y + header_h + 54
     y = _draw_wrapped_text(draw, report_title, content_x, y, content_w, fonts["title"], "#183B56", 44)
