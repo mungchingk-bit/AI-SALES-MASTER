@@ -25,11 +25,26 @@ class Evaluator:
         self.style_store = StyleStore()
         self.session_store = SessionStore()
 
-    def evaluate(self, session_id: str) -> EvaluationReport | None:
+    def evaluate(
+        self,
+        session_id: str,
+        include_extras: bool = True,
+        extract_phrases: bool = True,
+    ) -> EvaluationReport | None:
         """Evaluate a completed training session with full report."""
         session = self.session_store.load(session_id)
         if not session:
             return None
+        if session.evaluation_id:
+            existing = self.evaluation_store.load(session.evaluation_id)
+            if existing:
+                if include_extras and (not existing.conversation_summary or not existing.deal_progression):
+                    if not existing.conversation_summary:
+                        existing.conversation_summary = self._generate_conversation_summary(session)
+                    if not existing.deal_progression:
+                        existing.deal_progression = self._generate_deal_progression(session)
+                    self.evaluation_store.save(existing)
+                return existing
 
         # Load style profile if available
         style_profile = None
@@ -63,13 +78,9 @@ class Evaluator:
         # Build report
         report = self._build_report(session_id, result, session)
 
-        # Generate conversation summary (实战复盘)
-        summary = self._generate_conversation_summary(session)
-        report.conversation_summary = summary
-
-        # Generate deal progression analysis (成交路径)
-        progression = self._generate_deal_progression(session)
-        report.deal_progression = progression
+        if include_extras:
+            report.conversation_summary = self._generate_conversation_summary(session)
+            report.deal_progression = self._generate_deal_progression(session)
 
         # Save and return
         self.evaluation_store.save(report)
@@ -78,15 +89,15 @@ class Evaluator:
         session.evaluation_id = report.id
         self.session_store.save(session)
 
-        # Auto-extract good phrases from high-scoring sessions
-        extracted = 0
-        try:
-            from core.phrase_extractor import PhraseExtractor
-            extractor = PhraseExtractor()
-            extracted = extractor.extract_and_save(session, report)
-        except Exception:
-            pass
-        report._extracted_phrases = extracted
+        if extract_phrases:
+            extracted = 0
+            try:
+                from core.phrase_extractor import PhraseExtractor
+                extractor = PhraseExtractor()
+                extracted = extractor.extract_and_save(session, report)
+            except Exception:
+                pass
+            report._extracted_phrases = extracted
 
         return report
 

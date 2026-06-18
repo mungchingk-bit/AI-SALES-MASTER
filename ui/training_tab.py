@@ -1,6 +1,7 @@
 import gradio as gr
 from datetime import datetime
 from threading import Thread
+import time
 
 import config
 
@@ -112,16 +113,25 @@ def _update_style_from_training_session(session_id: str) -> None:
     _get_session_store().save(session)
 
 
-def _run_post_training_tasks(session_id: str) -> None:
+def _run_background_evaluation(session_id: str) -> None:
     try:
         evaluator = _get_evaluator()
-        evaluator.evaluate(session_id)
+        evaluator.evaluate(session_id, include_extras=False, extract_phrases=False)
     except Exception:
         pass
+
+
+def _run_background_style_update(session_id: str) -> None:
+    time.sleep(5)
     try:
         _update_style_from_training_session(session_id)
     except Exception:
         pass
+
+
+def _start_post_training_tasks(session_id: str) -> None:
+    Thread(target=_run_background_evaluation, args=(session_id,), daemon=True).start()
+    Thread(target=_run_background_style_update, args=(session_id,), daemon=True).start()
 
 
 def _get_unfinished_choices(current_user=""):
@@ -456,11 +466,11 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
         if end_reason:
             brief = _format_brief_summary(session)
 
-            Thread(target=_run_post_training_tasks, args=(session_id,), daemon=True).start()
+            _start_post_training_tasks(session_id)
 
             return (
                 chat_history, "", "已结束", receptivity_text,
-                gr.update(visible=True, value=brief + "\n\n---\n*详细评估报告正在后台生成，稍后可在「评估报告」中查看*"),
+                gr.update(visible=True, value=brief + "\n\n---\n*基础评估正在后台生成，稍后可在「评估报告」中查看；完整总结会在打开评估时按需补齐*"),
                 gr.update(interactive=False), gr.update(interactive=False),
                 gr.update(interactive=False),  # end_btn disabled
                 gr.update(choices=_get_unfinished_choices(current_user), value=None),
@@ -502,12 +512,12 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
         # Show brief summary immediately, generate full report in background
         brief = _format_brief_summary(session)
 
-        Thread(target=_run_post_training_tasks, args=(session_id,), daemon=True).start()
+        _start_post_training_tasks(session_id)
 
         return (
-            f"训练已结束！共{turn_count}轮对话。详细评估报告正在后台生成，稍后可在「评估报告」中查看。",
+            f"训练已结束！共{turn_count}轮对话。基础评估正在后台生成，稍后可在「评估报告」中查看。",
             gr.update(interactive=True),  # start_btn
-            gr.update(visible=True, value=brief + "\n\n---\n*详细评估报告正在后台生成，稍后可在「评估报告」中查看*"),
+            gr.update(visible=True, value=brief + "\n\n---\n*基础评估正在后台生成，稍后可在「评估报告」中查看；完整总结会在打开评估时按需补齐*"),
             gr.update(interactive=False),  # end_btn disabled
             gr.update(choices=_get_unfinished_choices(current_user), value=None),
             gr.update(choices=_get_history_choices(current_user), value=None),
