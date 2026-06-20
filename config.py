@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 # LLM Provider: "ollama" (本地) | "openai" (国内云端，自动脱敏) | "claude" (海外云端，自动脱敏)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
@@ -79,7 +80,16 @@ SUPPORTED_FILE_EXTENSIONS = {
 
 # Data Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+
+
+def _resolve_dir(env_name: str, default: str) -> str:
+    configured = os.getenv(env_name, "").strip()
+    path = configured or default
+    return os.path.abspath(os.path.expandvars(os.path.expanduser(path)))
+
+
+DATA_DIR = _resolve_dir("AI_SALES_DATA_DIR", os.path.join(BASE_DIR, "data"))
+TEMP_DIR = _resolve_dir("AI_SALES_TEMP_DIR", os.path.join(DATA_DIR, "temp"))
 STYLES_DIR = os.path.join(DATA_DIR, "styles")
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
 EVALUATIONS_DIR = os.path.join(DATA_DIR, "evaluations")
@@ -93,6 +103,10 @@ SCENARIO_HISTORY_DIR = os.path.join(DATA_DIR, "scenario_history")
 # Weekly Review (每周复盘)
 WEEKLY_REVIEW_DIR = os.path.join(DATA_DIR, "weekly_reviews")
 
+# Keep uploaded and generated temporary files with the configured application data.
+os.environ["GRADIO_TEMP_DIR"] = TEMP_DIR
+tempfile.tempdir = TEMP_DIR
+
 # Ensure data directories exist
-for d in [STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR, SCENARIO_HISTORY_DIR, WEEKLY_REVIEW_DIR]:
+for d in [DATA_DIR, TEMP_DIR, STYLES_DIR, SESSIONS_DIR, EVALUATIONS_DIR, REPORTS_DIR, KNOWLEDGE_DIR, FILE_DOWNLOAD_DIR, SCENARIO_HISTORY_DIR, WEEKLY_REVIEW_DIR]:
     os.makedirs(d, exist_ok=True)

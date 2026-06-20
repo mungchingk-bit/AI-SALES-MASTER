@@ -14,6 +14,8 @@ from ui.layout import create_app
 
 def main():
     print(f"[AI SALES MASTER] Gradio version: {gr.__version__}", flush=True)
+    print(f"[AI SALES MASTER] 数据目录: {config.DATA_DIR}", flush=True)
+    print(f"[AI SALES MASTER] 临时文件目录: {config.TEMP_DIR}", flush=True)
     # 显示当前模型模式
     if config.LLM_PROVIDER == "ollama":
         print(f"[AI SALES MASTER] 本地模型模式: {config.OLLAMA_MODEL}")

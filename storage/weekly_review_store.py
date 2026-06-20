@@ -2,12 +2,13 @@ import json
 import os
 from datetime import datetime
 
+import config
 from models.weekly_review import WeeklyReview
 
 
 class WeeklyReviewStore:
     def __init__(self):
-        self.dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "weekly_reviews")
+        self.dir = config.WEEKLY_REVIEW_DIR
         os.makedirs(self.dir, exist_ok=True)
 
     def save(self, review: WeeklyReview):
