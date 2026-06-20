@@ -7,6 +7,7 @@ from models.weekly_review import WeeklyReview
 
 
 class WeeklyReviewStore:
+    TEAM_OWNER = "__team__"
     def __init__(self):
         self.dir = config.WEEKLY_REVIEW_DIR
         os.makedirs(self.dir, exist_ok=True)
@@ -53,14 +54,35 @@ class WeeklyReviewStore:
         if not user:
             return ""
         review = self.latest_by_user(user)
-        if not review:
+        team_review = self.latest_by_user(self.TEAM_OWNER)
+        if not review and not team_review:
             return ""
 
-        lines = [f"最近成长复盘（{review.week_start} 至 {review.week_end}）："]
-        if review.strengths:
-            lines.append("继续保持：" + "；".join(review.strengths[:3]))
-        if review.suggestions:
-            lines.append("重点改进：" + "；".join(review.suggestions[:4]))
-        if review.focus_areas:
-            lines.append("近期训练重点：" + "；".join(review.focus_areas[:3]))
+        lines = []
+        if review:
+            lines.append(f"个人成长复盘（{review.week_start} 至 {review.week_end}）：")
+            if review.strengths:
+                lines.append("继续保持：" + "；".join(review.strengths[:3]))
+            if review.suggestions:
+                lines.append("重点改进：" + "；".join(review.suggestions[:4]))
+            if review.focus_areas:
+                lines.append("近期训练重点：" + "；".join(review.focus_areas[:3]))
+
+        if team_review:
+            own_insight = next(
+                (
+                    item for item in team_review.individual_insights
+                    if item.get("sales_name") == user
+                ),
+                None,
+            )
+            if own_insight:
+                lines.append("团队复盘中与你相关的改进：")
+                for key, label in (
+                    ("strength", "优势"),
+                    ("improvement", "需改进"),
+                    ("next_action", "下一步"),
+                ):
+                    if own_insight.get(key):
+                        lines.append(f"{label}：{own_insight[key]}")
         return "\n".join(lines)[:max_chars]

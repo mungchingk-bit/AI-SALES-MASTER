@@ -38,12 +38,28 @@ class _Client:
 
     def chat(self, **kwargs):
         self.calls.append(kwargs)
-        return json.dumps({
+        result = {
             "summary": "本周综合复盘",
             "strengths": ["能主动提问"],
             "suggestions": ["加强预算异议处理"],
             "focus_areas": ["异议处理"],
-        }, ensure_ascii=False)
+        }
+        if "团队管理复盘" in kwargs["system_prompt"]:
+            result["individual_insights"] = [
+                {
+                    "sales_name": "小王",
+                    "strength": "提问清楚",
+                    "improvement": "预算异议处理不够深入",
+                    "next_action": "完成两轮预算异议训练",
+                },
+                {
+                    "sales_name": "小李",
+                    "strength": "表达自然",
+                    "improvement": "收尾不够明确",
+                    "next_action": "练习确认下一步",
+                },
+            ]
+        return json.dumps(result, ensure_ascii=False)
 
 
 def _session(user="小王", started_at="2026-06-16T10:00:00"):
@@ -153,6 +169,55 @@ class WeeklyReviewerTests(unittest.TestCase):
         self.assertEqual(review.face_to_face_count, 1)
         self.assertIn("客户在意预算透明", reviewer.client.calls[0]["system_prompt"])
 
+    def test_team_review_aggregates_all_sales_and_is_incremental(self):
+        wang = _session(user="小王")
+        li = _session(user="小李", started_at="2026-06-17T10:00:00")
+        wang_eval = EvaluationReport(session_id=wang.id, overall_score=8)
+        li_face = ConversationReport(
+            sales_name="小李",
+            source_file="li.txt",
+            source_title="小李面聊",
+            created_at="2026-06-18T10:00:00",
+        )
+        reviewer = self._reviewer([wang, li], [wang_eval], [li_face])
+        now = datetime(2026, 6, 20, 12)
+
+        first, first_status = reviewer.generate_team_with_status(now=now)
+        second, second_status = reviewer.generate_team_with_status(now=now)
+
+        self.assertEqual(first_status, "created")
+        self.assertEqual(second_status, "unchanged")
+        self.assertEqual(first.scope, "team")
+        self.assertEqual(first.user, "__team__")
+        self.assertEqual(first.sales_count, 2)
+        self.assertEqual(first.session_count, 2)
+        self.assertEqual(first.face_to_face_count, 1)
+        self.assertEqual(len(first.individual_insights), 2)
+        self.assertEqual(
+            [item["sales_name"] for item in first.individual_insights],
+            ["小李", "小王"],
+        )
+        prompt = reviewer.client.calls[0]["system_prompt"]
+        self.assertIn("销售：小王", prompt)
+        self.assertIn("销售：小李", prompt)
+        self.assertEqual(len(reviewer.client.calls), 1)
+
+    def test_team_insights_filter_unknown_names_and_fill_missing_sales(self):
+        from core.weekly_review import WeeklyReviewer
+
+        normalized = WeeklyReviewer._normalize_team_insights(
+            [
+                {"sales_name": "小王", "strength": "提问好"},
+                {"sales_name": "不存在的人", "improvement": "不应出现"},
+            ],
+            ["小王", "小李"],
+            ["需求挖掘"],
+        )
+
+        self.assertEqual([item["sales_name"] for item in normalized], ["小王", "小李"])
+        self.assertEqual(normalized[0]["strength"], "提问好")
+        self.assertIn("需求挖掘", normalized[1]["next_action"])
+
 
 class WeeklyGrowthContextTests(unittest.TestCase):
     def test_legacy_review_defaults_and_growth_context(self):
@@ -165,6 +230,7 @@ class WeeklyGrowthContextTests(unittest.TestCase):
             "focus_areas": ["预算沟通"],
         })
         self.assertEqual(legacy.face_to_face_count, 0)
+        self.assertEqual(legacy.scope, "personal")
         self.assertEqual(legacy.updated_at, legacy.created_at)
 
         from storage.weekly_review_store import WeeklyReviewStore
@@ -175,6 +241,29 @@ class WeeklyGrowthContextTests(unittest.TestCase):
         self.assertIn("加强异议处理", context)
         self.assertIn("预算沟通", context)
         self.assertEqual(store.build_growth_context(""), "")
+
+    def test_team_growth_context_only_exposes_matching_salesperson(self):
+        personal = WeeklyReview(
+            user="小王", week_start="2026-06-15", week_end="2026-06-20",
+            suggestions=["个人建议"],
+        )
+        team = WeeklyReview(
+            user="__team__", scope="team", week_start="2026-06-15", week_end="2026-06-20",
+            individual_insights=[
+                {"sales_name": "小王", "improvement": "小王改进", "next_action": "小王动作"},
+                {"sales_name": "小李", "improvement": "小李私有改进", "next_action": "小李动作"},
+            ],
+        )
+        from storage.weekly_review_store import WeeklyReviewStore
+
+        store = WeeklyReviewStore.__new__(WeeklyReviewStore)
+        store.list_by_user = lambda user: [personal] if user == "小王" else [team] if user == "__team__" else []
+
+        context = store.build_growth_context("小王")
+
+        self.assertIn("个人建议", context)
+        self.assertIn("小王改进", context)
+        self.assertNotIn("小李私有改进", context)
 
     def test_growth_context_is_added_to_simulation_and_evaluation_prompts(self):
         from core.role_engine import RoleEngine
@@ -190,6 +279,36 @@ class WeeklyGrowthContextTests(unittest.TestCase):
         )
         self.assertIn("最近成长复盘", prompt)
         self.assertIn("预算沟通", prompt)
+
+
+class WeeklyReviewPermissionTests(unittest.TestCase):
+    def test_sales_account_is_forced_to_own_display_name(self):
+        from ui import weekly_tab
+
+        fake_store = SimpleNamespace(
+            get_user=lambda username: {
+                "role": "sales", "display_name": "小王",
+            } if username == "13800000000" else None,
+        )
+        with patch.object(weekly_tab, "UserStore", return_value=fake_store):
+            target, role = weekly_tab._personal_target("13800000000", "小李")
+
+        self.assertEqual(role, "sales")
+        self.assertEqual(target, "小王")
+
+    def test_admin_must_choose_personal_target(self):
+        from ui import weekly_tab
+
+        fake_store = SimpleNamespace(
+            get_user=lambda username: {"role": "admin", "display_name": "管理员"},
+        )
+        with patch.object(weekly_tab, "UserStore", return_value=fake_store):
+            empty_target, role = weekly_tab._personal_target("admin", None)
+            selected_target, _ = weekly_tab._personal_target("admin", "小李")
+
+        self.assertEqual(role, "admin")
+        self.assertEqual(empty_target, "")
+        self.assertEqual(selected_target, "小李")
 
 
 if __name__ == "__main__":

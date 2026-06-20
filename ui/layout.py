@@ -34,7 +34,7 @@ def create_app() -> gr.Blocks:
                     create_evaluation_tab(header["user_dropdown"])
                 with gr.Tab("每周复盘"):
                     from ui.weekly_tab import create_weekly_tab
-                    create_weekly_tab(header["user_dropdown"])
+                    create_weekly_tab(header["user_dropdown"], login["logged_in_user"])
 
             create_footer()
 
