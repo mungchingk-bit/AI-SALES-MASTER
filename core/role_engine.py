@@ -49,6 +49,11 @@ class RoleEngine:
 
         clean_response = self._strip_tags(response)
 
+        # The UI already identifies the speaker with the chat bubble. Some models
+        # still echo script labels such as "小刘："; remove them before the text
+        # is stored, otherwise the next scripted prompt adds another label.
+        clean_response = self._strip_speaker_prefix(clean_response, customer_name, "客户")
+
         # Post-process: fix name confusion
         clean_response = self._fix_name_confusion(clean_response, customer_name, conversation)
 
@@ -167,6 +172,17 @@ class RoleEngine:
         text = re.sub(r"<end_conversation>.*?</end_conversation>", "", text, flags=re.DOTALL)
         return text.strip()
 
+    @staticmethod
+    def _strip_speaker_prefix(text: str, *speaker_labels: str) -> str:
+        """Remove repeated speaker labels from the start of a chat message."""
+        labels = [re.escape(label.strip()) for label in speaker_labels if label and label.strip()]
+        if not labels:
+            return text.strip()
+
+        label_pattern = "|".join(labels)
+        prefix_pattern = rf"^\s*(?:(?:{label_pattern})\s*[：:]\s*)+"
+        return re.sub(prefix_pattern, "", text).strip()
+
     def _parse_end_conversation(self, text: str) -> str:
         """Parse end conversation signal. Returns end reason or empty string."""
         match = re.search(r"<end_conversation>(.*?)</end_conversation>", text)
@@ -239,7 +255,8 @@ class RoleEngine:
         topics_discussed = []
         for msg in older:
             prefix = ai_label if msg.role == "assistant" else user_label
-            topics_discussed.append(f"{prefix}：{msg.content[:60]}")
+            content = self._strip_speaker_prefix(msg.content, prefix)
+            topics_discussed.append(f"{prefix}：{content[:60]}")
 
         summary_lines = [
             f"[以下是之前{len(older)}条消息的摘要，这些内容已经讨论过，绝对不能重复：]",
@@ -268,9 +285,11 @@ class RoleEngine:
         for msg in recent:
             api_msg = msg.to_api_message()
             if msg.role == "assistant":
-                api_msg["content"] = f"{ai_label}：{api_msg['content']}"
+                content = self._strip_speaker_prefix(api_msg["content"], ai_label)
+                api_msg["content"] = f"{ai_label}：{content}"
             elif msg.role == "user":
-                api_msg["content"] = f"{user_label}：{api_msg['content']}"
+                content = self._strip_speaker_prefix(api_msg["content"], user_label)
+                api_msg["content"] = f"{user_label}：{content}"
             messages.append(api_msg)
 
         turn_count = len(conversation)
