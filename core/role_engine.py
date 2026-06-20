@@ -20,9 +20,12 @@ class RoleEngine:
         self,
         conversation: list[ChatMessage],
         scenario: dict,
+        growth_context: str = "",
     ) -> tuple[str, int, str]:
         """Generate a customer response. Returns (response_text, receptivity_score, end_reason)."""
         system_prompt = build_customer_prompt(scenario)
+        if growth_context:
+            system_prompt += self._build_growth_instruction(growth_context, "customer")
         customer_name = scenario.get("customer_name", "客户")
         messages = self._format_as_script(conversation, customer_name, "销售")
 
@@ -96,6 +99,7 @@ class RoleEngine:
         scenario: dict,
         current_phase: str = "开场",
         turn_number: int = 1,
+        growth_context: str = "",
     ) -> tuple[str, str]:
         """Generate a salesperson response. Returns (response_text, style_note)."""
         system_prompt = build_sales_prompt(
@@ -104,6 +108,8 @@ class RoleEngine:
             current_phase=current_phase,
             turn_number=turn_number,
         )
+        if growth_context:
+            system_prompt += self._build_growth_instruction(growth_context, "salesperson")
         customer_name = scenario.get("customer_name", "客户")
         messages = self._format_as_script(conversation, "销售", customer_name)
 
@@ -157,6 +163,20 @@ class RoleEngine:
         if match:
             return int(match.group(1))
         return 5  # default
+
+    @staticmethod
+    def _build_growth_instruction(growth_context: str, role: str) -> str:
+        if role == "customer":
+            direction = (
+                "在保持客户画像真实一致的前提下，自然创造机会让销售练习这些重点。"
+                "不要直接说出训练目标，也不要为了考核而生硬改变话题。"
+            )
+        else:
+            direction = (
+                "示范时优先体现这些改进方向，但仍要自然回应当前客户，"
+                "不要向用户复述内部复盘内容。"
+            )
+        return f"\n\n## 个性化成长重点（仅系统可见）\n{growth_context}\n{direction}"
 
     def _parse_style_note(self, text: str) -> str:
         """Parse style note from <style_note>...</style_note> tag."""

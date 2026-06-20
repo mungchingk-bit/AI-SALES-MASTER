@@ -24,9 +24,11 @@ def _format_review(review) -> str:
     lines = [f"# 每周复盘报告\n"]
     lines.append(f"**周期**：{review.week_start} ~ {review.week_end}")
     lines.append(f"**训练次数**：{review.session_count}次")
+    lines.append(f"**面聊汇报**：{getattr(review, 'face_to_face_count', 0)}份")
     lines.append(f"**成功次数**：{review.success_count}次")
     lines.append(f"**平均总分**：{review.avg_overall_score}/10")
     lines.append(f"**分数趋势**：{review.score_trend}")
+    lines.append(f"**数据更新**：{getattr(review, 'updated_at', review.created_at)[:19].replace('T', ' ')}")
 
     if review.avg_dimension_scores:
         lines.append("\n## 各维度平均分")
@@ -36,6 +38,11 @@ def _format_review(review) -> str:
 
     if review.summary:
         lines.append(f"\n## 本周总结\n{review.summary}")
+
+    if getattr(review, "strengths", []):
+        lines.append("\n## 共性优势")
+        for item in review.strengths:
+            lines.append(f"- {item}")
 
     if review.suggestions:
         lines.append("\n## 改进建议")
@@ -54,14 +61,17 @@ def _get_review_choices(current_user=""):
     reviews = _get_review_store().list_by_user(current_user)
     choices = []
     for r in reviews:
-        label = f"{r.week_start} ~ {r.week_end} | {r.session_count}次训练 | 均分{r.avg_overall_score}"
+        label = (
+            f"{r.week_start} ~ {r.week_end} | {r.session_count}次训练 + "
+            f"{getattr(r, 'face_to_face_count', 0)}份面聊 | 均分{r.avg_overall_score}"
+        )
         choices.append((label, r.id))
     return choices
 
 
 def create_weekly_tab(user_dropdown=None):
     gr.Markdown("## 每周复盘")
-    gr.Markdown("汇总每周训练数据，自动生成复盘报告，包括训练统计、维度分析、改进建议和下周重点。")
+    gr.Markdown("汇总本周训练场与面聊汇报；有新数据时更新复盘，并将改进重点用于后续训练。")
 
     with gr.Row():
         with gr.Column(scale=1):
@@ -78,16 +88,25 @@ def create_weekly_tab(user_dropdown=None):
 
     def generate_review(current_user):
         if not current_user:
-            return "请先登录", gr.update()
+            return "请先登录", gr.update(), gr.update()
         try:
-            review = _get_reviewer().generate(current_user)
+            review, status = _get_reviewer().generate_with_status(current_user)
             if not review:
-                return "本周暂无训练数据，无法生成复盘", gr.update()
+                return "本周暂无新的训练或面聊数据，不生成复盘", gr.update(), gr.update()
             review_md = _format_review(review)
             choices = _get_review_choices(current_user)
-            return f"复盘报告已生成（{review.week_start} ~ {review.week_end}）", gr.update(value=review_md, choices=choices)
+            status_labels = {
+                "created": "复盘报告已生成",
+                "updated": "检测到新数据，复盘报告已更新",
+                "unchanged": "本周暂无新增或变化，沿用已有复盘",
+            }
+            return (
+                f"{status_labels.get(status, '复盘处理完成')}（{review.week_start} ~ {review.week_end}）",
+                gr.update(value=review_md),
+                gr.update(choices=choices, value=review.id),
+            )
         except Exception as e:
-            return f"生成失败：{str(e)[:200]}", gr.update()
+            return f"生成失败：{str(e)[:200]}", gr.update(), gr.update()
 
     def refresh_reviews(current_user):
         choices = _get_review_choices(current_user)
@@ -106,7 +125,7 @@ def create_weekly_tab(user_dropdown=None):
     generate_btn.click(
         fn=generate_review,
         inputs=[user_dropdown],
-        outputs=[status_text, review_display],
+        outputs=[status_text, review_display, review_dropdown],
     )
     refresh_btn.click(
         fn=refresh_reviews,

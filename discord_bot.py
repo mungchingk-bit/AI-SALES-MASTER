@@ -917,6 +917,7 @@ async def slash_weekly(interaction: discord.Interaction):
 
         lines = [f"**周期**：{review.week_start} ~ {review.week_end}"]
         lines.append(f"**训练次数**：{review.session_count}次")
+        lines.append(f"**面聊汇报**：{getattr(review, 'face_to_face_count', 0)}份")
         lines.append(f"**成功次数**：{review.success_count}次")
         lines.append(f"**平均总分**：{review.avg_overall_score}/10")
         lines.append(f"**分数趋势**：{review.score_trend}")
@@ -927,6 +928,11 @@ async def slash_weekly(interaction: discord.Interaction):
 
         if review.summary:
             lines.append(f"\n**本周总结**：{review.summary}")
+
+        if getattr(review, "strengths", []):
+            lines.append("\n**共性优势**：")
+            for item in review.strengths:
+                lines.append(f"- {item}")
 
         if review.suggestions:
             lines.append("\n**改进建议**：")

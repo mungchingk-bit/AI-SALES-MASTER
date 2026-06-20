@@ -14,6 +14,7 @@ from prompts.conversation_summary import (
 from storage.evaluation_store import EvaluationStore
 from storage.style_store import StyleStore
 from storage.session_store import SessionStore
+from storage.weekly_review_store import WeeklyReviewStore
 
 import config
 
@@ -24,6 +25,7 @@ class Evaluator:
         self.evaluation_store = EvaluationStore()
         self.style_store = StyleStore()
         self.session_store = SessionStore()
+        self.weekly_review_store = WeeklyReviewStore()
 
     def evaluate(
         self,
@@ -55,10 +57,12 @@ class Evaluator:
 
         # Build evaluation prompt
         correction_guide = self.evaluation_store.build_correction_guide(user=session.user)
+        growth_context = self.weekly_review_store.build_growth_context(session.user)
         prompt = build_evaluation_prompt(
             session_data=session.to_dict(),
             style_profile=style_profile,
             correction_guide=correction_guide,
+            growth_context=growth_context,
         )
 
         # Call LLM for dimension scoring

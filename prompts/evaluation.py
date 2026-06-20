@@ -67,6 +67,7 @@ def build_evaluation_prompt(
     session_data: dict,
     style_profile: dict | None = None,
     correction_guide: str = "",
+    growth_context: str = "",
 ) -> str:
     """Build an evaluation prompt from session data."""
     mode = session_data.get("mode", "customer")
@@ -110,5 +111,13 @@ def build_evaluation_prompt(
 
     if correction_guide:
         prompt = prompt.replace("## 评分标准", f"{correction_guide}\n## 评分标准")
+
+    if growth_context:
+        growth_section = (
+            "## 最近成长复盘\n"
+            f"{growth_context}\n"
+            "请额外观察本次是否在这些近期重点上取得进步，但不得因此改变统一评分标准。\n\n"
+        )
+        prompt = prompt.replace("## 评估要求", growth_section + "## 评估要求")
 
     return prompt

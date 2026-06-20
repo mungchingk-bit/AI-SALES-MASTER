@@ -7,6 +7,7 @@ from models.style_profile import StyleProfile
 from models.training_session import TrainingSession
 from storage.session_store import SessionStore
 from storage.style_store import StyleStore
+from storage.weekly_review_store import WeeklyReviewStore
 
 import config
 
@@ -16,6 +17,7 @@ class TrainingManager:
         self.role_engine = RoleEngine()
         self.session_store = SessionStore()
         self.style_store = StyleStore()
+        self.weekly_review_store = WeeklyReviewStore()
         self._active_sessions: dict[str, TrainingSession] = {}
 
     def create_session(
@@ -57,12 +59,14 @@ class TrainingManager:
 
         # Get current phase
         current_phase = self._detect_phase(session)
+        growth_context = self.weekly_review_store.build_growth_context(session.user)
 
         if session.mode == "customer":
             # AI plays customer
             ai_response, receptivity, end_reason = self.role_engine.generate_customer_response(
                 conversation=session.conversation,
                 scenario=session.scenario,
+                growth_context=growth_context,
             )
             session.add_message(role="assistant", content=ai_response)
             session.receptivity_history.append(receptivity)
@@ -110,6 +114,7 @@ class TrainingManager:
                 scenario=session.scenario,
                 current_phase=current_phase,
                 turn_number=turn_number,
+                growth_context=growth_context,
             )
             session.add_message(role="assistant", content=ai_response, metadata={"style_note": style_note})
             receptivity = 0
