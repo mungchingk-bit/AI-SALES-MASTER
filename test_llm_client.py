@@ -22,6 +22,18 @@ class CloudTimeoutRecoveryTests(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["timeout"], (10.0, 60.0))
         sleep.assert_called_once_with(8)
 
+    @patch("core.llm_client.time.sleep")
+    @patch("core.llm_client.requests.post")
+    def test_evaluation_can_override_response_timeout(self, post, sleep):
+        post.side_effect = requests.exceptions.Timeout("slow evaluation")
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+            client = OpenAICompatibleClient()
+            with self.assertRaises(TimeoutError):
+                client.chat([], "evaluation", timeout_seconds=240)
+
+        self.assertEqual(post.call_args.kwargs["timeout"], (10.0, 240))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ class BaseLLMClient(ABC):
         system_prompt: str,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        timeout_seconds: float | None = None,
     ) -> str:
         ...
 
@@ -56,6 +57,7 @@ class OllamaClient(BaseLLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         model: str = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         payload = {
             "model": model or self.model,
@@ -67,7 +69,7 @@ class OllamaClient(BaseLLMClient):
         response = requests.post(
             f"{self.base_url}/api/chat",
             json=payload,
-            timeout=600,
+            timeout=timeout_seconds or 600,
         )
         response.raise_for_status()
         return response.json()["message"]["content"]
@@ -79,6 +81,7 @@ class OllamaClient(BaseLLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         model: str = None,
+        timeout_seconds: float | None = None,
     ) -> Iterator[str]:
         payload = {
             "model": model or self.model,
@@ -155,6 +158,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         model: str = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         messages, system_prompt = self._desensitize(messages, system_prompt)
         built = self._build_messages(messages, system_prompt)
@@ -171,13 +175,14 @@ class OpenAICompatibleClient(BaseLLMClient):
             "Content-Type": "application/json",
         }
         response = None
+        response_timeout = timeout_seconds or config.CLOUD_RESPONSE_TIMEOUT
         for attempt in range(config.CLOUD_MAX_RETRIES):
             try:
                 response = requests.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,
                     headers=headers,
-                    timeout=(config.CLOUD_CONNECT_TIMEOUT, config.CLOUD_RESPONSE_TIMEOUT),
+                    timeout=(config.CLOUD_CONNECT_TIMEOUT, response_timeout),
                 )
                 response.raise_for_status()
                 break
@@ -207,6 +212,7 @@ class OpenAICompatibleClient(BaseLLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         model: str = None,
+        timeout_seconds: float | None = None,
     ) -> Iterator[str]:
         messages, system_prompt = self._desensitize(messages, system_prompt)
         built = self._build_messages(messages, system_prompt)
@@ -367,15 +373,18 @@ class ClaudeClient(BaseLLMClient):
         temperature: float = 0.7,
         max_tokens: int = 4096,
         model: str = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         messages, system_prompt = self._desensitize(messages, system_prompt)
 
+        request_options = {"timeout": timeout_seconds} if timeout_seconds else {}
         response = self.client.messages.create(
             model=model or self.model,
             max_tokens=max_tokens,
             temperature=temperature,
             system=system_prompt,
             messages=messages,
+            **request_options,
         )
         return response.content[0].text
 

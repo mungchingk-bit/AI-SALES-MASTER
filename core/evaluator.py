@@ -73,6 +73,7 @@ class Evaluator:
             temperature=config.EVALUATION_TEMP,
             max_tokens=config.MAX_TOKENS_EVALUATION,
             model=config.EVAL_MODEL or config.OPENAI_MODEL or None,
+            timeout_seconds=config.CLOUD_EVALUATION_RESPONSE_TIMEOUT,
         )
 
         # Parse response
@@ -159,6 +160,7 @@ class Evaluator:
                 temperature=0.4,
                 max_tokens=3000,
                 model=config.EVAL_MODEL or config.OPENAI_MODEL or None,
+                timeout_seconds=config.CLOUD_EVALUATION_RESPONSE_TIMEOUT,
             )
             return response.strip()
         except Exception:
@@ -174,6 +176,7 @@ class Evaluator:
                 temperature=0.3,
                 max_tokens=2048,
                 model=config.EVAL_MODEL or config.OPENAI_MODEL or None,
+                timeout_seconds=config.CLOUD_EVALUATION_RESPONSE_TIMEOUT,
             )
             result = self._parse_json_response(response)
             return result if result else {}

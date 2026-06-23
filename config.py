@@ -19,6 +19,7 @@ FAST_MODEL = os.getenv("FAST_MODEL", "")  # 快速模型用于训练对话，留
 EVAL_MODEL = os.getenv("EVAL_MODEL", "")  # 评估专用模型，留空则用 OPENAI_MODEL
 CLOUD_CONNECT_TIMEOUT = float(os.getenv("CLOUD_CONNECT_TIMEOUT", "10"))
 CLOUD_RESPONSE_TIMEOUT = float(os.getenv("CLOUD_RESPONSE_TIMEOUT", "60"))
+CLOUD_EVALUATION_RESPONSE_TIMEOUT = float(os.getenv("CLOUD_EVALUATION_RESPONSE_TIMEOUT", "240"))
 CLOUD_MAX_RETRIES = max(1, int(os.getenv("CLOUD_MAX_RETRIES", "2")))
 
 # Claude Configuration (海外云端模型)
