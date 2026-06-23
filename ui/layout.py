@@ -52,4 +52,14 @@ def create_app() -> gr.Blocks:
                      header["welcome_md"], header["user_dropdown"], header["sales_preview"], admin_tab],
         )
 
+        # Keep cloud reverse-proxy and Gradio connections active while a
+        # salesperson pauses to think between replies.
+        heartbeat = gr.Timer(30)
+        heartbeat.tick(
+            fn=lambda: None,
+            queue=False,
+            show_progress="hidden",
+            api_visibility="private",
+        )
+
     return app

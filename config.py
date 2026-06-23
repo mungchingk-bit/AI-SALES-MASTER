@@ -17,6 +17,9 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
 FAST_MODEL = os.getenv("FAST_MODEL", "")  # 快速模型用于训练对话，留空则用 OPENAI_MODEL
 EVAL_MODEL = os.getenv("EVAL_MODEL", "")  # 评估专用模型，留空则用 OPENAI_MODEL
+CLOUD_CONNECT_TIMEOUT = float(os.getenv("CLOUD_CONNECT_TIMEOUT", "10"))
+CLOUD_RESPONSE_TIMEOUT = float(os.getenv("CLOUD_RESPONSE_TIMEOUT", "60"))
+CLOUD_MAX_RETRIES = max(1, int(os.getenv("CLOUD_MAX_RETRIES", "2")))
 
 # Claude Configuration (海外云端模型)
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")

@@ -1,5 +1,7 @@
 import random
 
+import config
+
 CUSTOMER_SIMULATION_PROMPT = """你是一位真实的潜在客户，你的名字叫{customer_name}。请严格按照以下设定进行角色扮演。
 
 ## 对话场景
@@ -35,6 +37,11 @@ CUSTOMER_SIMULATION_PROMPT = """你是一位真实的潜在客户，你的名字
 - 主要顾虑：{primary_objections}
 - 触发条件：如果销售人员做了{trigger_action}，你的接受度+2
 - 红线：如果销售人员做了{red_line_action}，你会直接终止对话
+
+## 本场对话方式（每场随机生成，仅用于改变提问套路）
+- 提问风格：{question_style}
+- 话题路径：{question_route}
+- 路径只是优先顺序，不是固定问卷。先回应销售当前说的话，再从尚未讨论的话题中自然挑选下一个；可以跳跃、回问、质疑或暂时不提问。
 
 ## 行为规则
 1. 你是一个真实的备婚客户，不是AI助手。永远不要跳出角色。
@@ -282,16 +289,16 @@ def _pick_objections_for_difficulty(difficulty: str) -> list[str]:
     all_dims = list(OBJECTION_DIMENSIONS.keys())
 
     if difficulty == "easy":
-        # 简单：3个维度，每维度1个，偏向基础顾虑
-        preferred = ["价格透明", "流程服务", "信任口碑", "时间压力", "情感顾虑"]
-        dims = random.sample(preferred, 3)
-    elif difficulty == "hard":
-        # 困难：4个维度，每维度1-2个，偏向深度质疑
+        # 新简单档以旧困难档为基线。
         preferred = ["品牌差异", "合同保障", "设计效果", "专业能力", "信任口碑", "家庭决策"]
         dims = random.sample(preferred, 4)
+    elif difficulty == "hard":
+        # 困难档覆盖更多决策与履约风险，并持续交叉质疑。
+        dims = random.sample(all_dims, 6)
     else:
-        # 中等：3个维度，每维度1个，混合
-        dims = random.sample(all_dims, 3)
+        # 中等档在旧困难基础上增加一个顾虑维度。
+        preferred = ["品牌差异", "合同保障", "设计效果", "专业能力", "信任口碑", "家庭决策", "售后保障", "二次消费"]
+        dims = random.sample(preferred, 5)
 
     objections = []
     for dim in dims:
@@ -303,49 +310,50 @@ def _pick_objections_for_difficulty(difficulty: str) -> list[str]:
 # 难度设定（婚礼行业版）— 保留兼容
 DIFFICULTY_SETTINGS = {
     "easy": {
-        "receptivity_score": 6,
-        "customer_personality": "友善开放，已经对比过几家，对你们有好感",
-        "trigger_action": "展示真实的案例效果和详细的费用明细",
-        "red_line_action": "反复施压逼单而不回应我的顾虑",
-    },
-    "medium": {
-        "receptivity_score": 4,
-        "customer_personality": "务实谨慎，看过很多小红书攻略，要求性价比",
-        "trigger_action": "用真实案例和具体数字证明价值，而不是空话",
-        "red_line_action": "夸大效果或回避价格问题",
-    },
-    "hard": {
         "receptivity_score": 2,
         "customer_personality": "挑剔多疑，已经看过3-5家，觉得都差不多，对婚庆行业有偏见",
         "trigger_action": "展现出专业深度（设计、施工、花艺）并给出差异化的价值洞察",
         "red_line_action": "用模板化话术敷衍，不解决具体问题",
+    },
+    "medium": {
+        "receptivity_score": 2,
+        "customer_personality": "高警惕的专业比较型客户，会交叉核对报价、案例和合同细节，不接受笼统回答",
+        "trigger_action": "连续用可核验的案例、数字和合同条款证明方案价值，并主动说明边界",
+        "red_line_action": "回避关键细节、前后说法不一致或试图用优惠打断质疑",
+    },
+    "hard": {
+        "receptivity_score": 1,
+        "customer_personality": "强势且复杂的多人决策代表，会突然切换关注点、引用竞品条件，并要求销售处理相互冲突的需求",
+        "trigger_action": "识别真正的决策链和冲突需求，用证据拆解异议并给出清晰的取舍方案",
+        "red_line_action": "未经确认就承诺、贬低竞品、施压成交或忽略其他决策人的意见",
     },
 }
 
 # 多样化性格池 — 每种难度多种性格，优先选没用过的
 DIFFICULTY_PERSONALITIES = {
     "easy": [
-        "友善开放，已经对比过几家，对你们有好感",
-        "热情主动，很期待婚礼，愿意分享想法",
-        "随和健谈，对婚礼了解不多但很感兴趣",
-    ],
-    "medium": [
-        "务实谨慎，看过很多小红书攻略，要求性价比",
-        "理性对比型，手里有3家报价在做比较",
-        "纠结犹豫型，什么都想要但预算有限",
-        "精致挑剔型，对细节要求高但表达含蓄",
-    ],
-    "hard": [
         "挑剔多疑，已经看过3-5家，觉得都差不多，对婚庆行业有偏见",
         "强势压价型，自认为很懂行，上来就要求打折",
         "冷漠防御型，不想被推销，回答都很简短",
+    ],
+    "medium": [
+        "高警惕的专业比较型，手里有多份报价，会反复核对口径",
+        "证据导向型，任何卖点都要求案例、数字或合同依据",
+        "多方拉扯型，自己的审美、伴侣预算和父母要求彼此冲突",
+        "细节审查型，会从设计效果追问到材料、执行和售后责任",
+    ],
+    "hard": [
+        "谈判经验丰富，会用竞品报价和时间压力测试销售底线",
+        "多人决策代表，随时带入伴侣、父母和出资人的新反对意见",
+        "高风险审查型，会连续追问最坏情况、责任归属和退出机制",
+        "矛盾需求型，既要高定效果又要压缩预算和周期，拒绝空泛折中",
     ],
 }
 
 DIFFICULTY_TRIGGERS = {
     "easy": [
-        "展示真实的案例效果和详细的费用明细",
-        "真诚地倾听需求并给出贴心建议",
+        "展现出专业深度（设计、施工、花艺）并给出差异化的价值洞察",
+        "直面质疑不回避，用数据和案例逐一回应",
     ],
     "medium": [
         "用真实案例和具体数字证明价值，而不是空话",
@@ -353,15 +361,15 @@ DIFFICULTY_TRIGGERS = {
         "主动坦白优劣势，建立信任后再推荐",
     ],
     "hard": [
-        "展现出专业深度（设计、施工、花艺）并给出差异化的价值洞察",
-        "直面质疑不回避，用数据和案例逐一回应",
+        "先厘清多人决策链，再用证据处理相互冲突的要求",
+        "主动揭示方案边界和最坏情况，并给出可执行的风险预案",
     ],
 }
 
 DIFFICULTY_RED_LINES = {
     "easy": [
-        "反复施压逼单而不回应我的顾虑",
-        "态度敷衍，明显没有认真听我说话",
+        "用模板化话术敷衍，不解决具体问题",
+        "被指出问题后还狡辩推脱，不肯承认不足",
     ],
     "medium": [
         "夸大效果或回避价格问题",
@@ -369,10 +377,33 @@ DIFFICULTY_RED_LINES = {
         "对质疑避重就轻，不正面回答问题",
     ],
     "hard": [
-        "用模板化话术敷衍，不解决具体问题",
-        "被指出问题后还狡辩推脱，不肯承认不足",
+        "未经确认就承诺结果，或故意模糊合同责任",
+        "贬低竞品、施压成交或忽略关键决策人的意见",
     ],
 }
+
+QUESTION_STYLES = [
+    "先闲聊观察，再突然切入一个关键顾虑",
+    "短句连续追问，对模糊回答立刻要求举例或给数字",
+    "先认可一部分，再从反例、风险或竞品角度提出质疑",
+    "信息透露很少，让销售主动挖掘；被问准了才逐步展开",
+    "围绕销售刚说的内容追问，不按预设销售流程配合推进",
+    "偶尔跳转话题，之后再回到尚未解决的关键问题",
+]
+
+QUESTION_TOPICS = [
+    "价格构成与后续加项", "案例真实性与落地差距", "设计能力与审美匹配",
+    "执行团队与突发情况", "合同责任与售后保障", "竞品差异与选择理由",
+    "家人意见与决策权", "档期、周期与沟通效率", "材料品质与供应商透明度",
+    "付款节奏、退款与退出机制",
+]
+
+
+def _build_question_route() -> tuple[str, str]:
+    """Create one stable but shuffled questioning approach for a training session."""
+    style = random.choice(QUESTION_STYLES)
+    route = random.sample(QUESTION_TOPICS, len(QUESTION_TOPICS))
+    return style, " → ".join(route)
 
 
 def _generate_dynamic_details(wedding_type: str, difficulty: str, recent_topics: str) -> dict | None:
@@ -381,7 +412,8 @@ def _generate_dynamic_details(wedding_type: str, difficulty: str, recent_topics:
     try:
         from core.llm_client import get_client
         client = get_client()
-        diff_labels = {"easy": "简单（客户较友好）", "medium": "中等（客户理性务实）", "hard": "困难（客户挑剔防备）"}
+        diff_labels = {"easy": "简单（相当于旧困难档）", "medium": "中等（高压交叉质疑）", "hard": "困难（复杂决策与连续压力测试）"}
+        objection_counts = {"easy": "4-6个", "medium": "5-7个", "hard": "6-8个"}
         prompt = f"""你是一个婚礼销售训练的场景设计师。请为一次销售模拟训练生成一个**全新、独特**的客户设定。
 
 要求：
@@ -392,7 +424,7 @@ def _generate_dynamic_details(wedding_type: str, difficulty: str, recent_topics:
 请严格按以下JSON格式输出，不要加其他内容：
 {{
   "customer_personality": "一句独特的客户性格描述（不要用'务实谨慎''友善开放'等常见词，要具体、有画面感）",
-  "primary_objections": "3-4个具体的、与众不同的顾虑，用分号分隔（不要重复近期训练过的主题）",
+  "primary_objections": "{objection_counts.get(difficulty, '5-7个')}具体的、与众不同的顾虑，用分号分隔（不要重复近期训练过的主题）",
   "trigger_action": "一句话：什么做法能让这个客户被打动",
   "red_line_action": "一句话：什么做法会让这个客户直接翻脸走人"
 }}
@@ -475,10 +507,13 @@ def build_diverse_scenario(
     date = random.choice(WEDDING_DATES)
     budget = random.choice(BUDGETS)
     authority = random.choice(DECISION_AUTHORITIES)
+    question_style, question_route = _build_question_route()
 
     type_settings = WEDDING_SCENARIOS.get(chosen_type, WEDDING_SCENARIOS["酒店婚宴"])
 
+    # Type defaults go first so the generated per-session details stay authoritative.
     scenario = {
+        **type_settings,
         "product": "婚礼策划服务",
         "industry": "婚礼策划",
         "difficulty": difficulty,
@@ -491,9 +526,11 @@ def build_diverse_scenario(
         "customer_personality": personality,
         "trigger_action": trigger,
         "red_line_action": red_line,
+        "question_style": question_style,
+        "question_route": question_route,
+        "_custom_objections": True,
         "_used_dimensions": chosen_dims,
         "_wedding_type_key": chosen_type,
-        **type_settings,
     }
 
     return scenario
@@ -504,13 +541,13 @@ def _pick_diverse_objections(difficulty: str, recent_dimensions: list[str]) -> t
     all_dims = list(OBJECTION_DIMENSIONS.keys())
 
     if difficulty == "easy":
-        dim_count = 3
-        preferred = ["价格透明", "流程服务", "信任口碑", "时间压力", "情感顾虑", "售后保障", "二次消费"]
-    elif difficulty == "hard":
         dim_count = 4
         preferred = ["品牌差异", "合同保障", "设计效果", "专业能力", "信任口碑", "家庭决策", "售后保障", "二次消费"]
+    elif difficulty == "hard":
+        dim_count = 6
+        preferred = all_dims
     else:
-        dim_count = 3
+        dim_count = 5
         preferred = all_dims
 
     available = [d for d in preferred if d not in recent_dimensions]
@@ -550,6 +587,9 @@ def build_customer_prompt(scenario: dict) -> str:
     full_scenario.setdefault("wedding_date", random.choice(WEDDING_DATES))
     full_scenario.setdefault("budget_situation", random.choice(BUDGETS))
     full_scenario.setdefault("decision_authority", random.choice(DECISION_AUTHORITIES))
+    question_style, question_route = _build_question_route()
+    full_scenario.setdefault("question_style", question_style)
+    full_scenario.setdefault("question_route", question_route)
 
     # Randomize objections: pick by difficulty with dimensional variety
     if "primary_objections" not in full_scenario or not full_scenario.get("_custom_objections"):

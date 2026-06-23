@@ -17,7 +17,7 @@ class DifficultyEngine:
 
         avg_score = self._get_user_avg_score(user, lookback)
         if avg_score is None:
-            return "medium"
+            return "easy"
 
         if avg_score < threshold_easy:
             return "easy"

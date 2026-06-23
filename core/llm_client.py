@@ -171,23 +171,23 @@ class OpenAICompatibleClient(BaseLLMClient):
             "Content-Type": "application/json",
         }
         response = None
-        for attempt in range(3):
+        for attempt in range(config.CLOUD_MAX_RETRIES):
             try:
                 response = requests.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,
                     headers=headers,
-                    timeout=120,
+                    timeout=(config.CLOUD_CONNECT_TIMEOUT, config.CLOUD_RESPONSE_TIMEOUT),
                 )
                 response.raise_for_status()
                 break
-            except requests.exceptions.Timeout:
-                if attempt == 2:
-                    return "请求超时，请稍后重试。"
+            except requests.exceptions.Timeout as exc:
+                if attempt == config.CLOUD_MAX_RETRIES - 1:
+                    raise TimeoutError("云端模型响应超时") from exc
                 time.sleep(8 * (attempt + 1))
             except requests.exceptions.HTTPError as e:
                 status = e.response.status_code if e.response is not None else None
-                if status == 429 and attempt < 2:
+                if status == 429 and attempt < config.CLOUD_MAX_RETRIES - 1:
                     retry_after = e.response.headers.get("Retry-After", "") if e.response is not None else ""
                     try:
                         wait_seconds = int(float(retry_after))
@@ -227,7 +227,7 @@ class OpenAICompatibleClient(BaseLLMClient):
             json=payload,
             headers=headers,
             stream=True,
-            timeout=120,
+            timeout=(config.CLOUD_CONNECT_TIMEOUT, config.CLOUD_RESPONSE_TIMEOUT),
         ) as response:
             response.raise_for_status()
             in_reasoning = False

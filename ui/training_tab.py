@@ -445,9 +445,30 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
                     gr.update(choices=[]), gr.update(choices=[], value=None), gr.update(visible=False, value=""))
         training_mgr = _get_training_mgr()
         session = training_mgr.get_session(session_id)
-        ai_response, style_note, receptivity, phase = training_mgr.process_user_message(
-            session_id, message.strip()
-        )
+        conversation_length = len(session.conversation) if session else 0
+        try:
+            ai_response, style_note, receptivity, phase = training_mgr.process_user_message(
+                session_id, message.strip()
+            )
+        except Exception:
+            # Roll back the in-memory user turn so a retry is not duplicated.
+            if session and len(session.conversation) > conversation_length:
+                del session.conversation[conversation_length:]
+                training_mgr.session_store.save(session)
+            chat_history.append({"role": "user", "content": message})
+            chat_history.append({
+                "role": "assistant",
+                "content": "本次连接超时或模型暂时不可用，消息没有计入训练记录。请稍后重新发送。",
+            })
+            current_user = session.user if session else ""
+            return (
+                chat_history, message, _detect_phase_from_session(session) if session else "开场", "-",
+                gr.update(visible=True, value="连接已恢复，可以重新发送刚才的消息。"),
+                gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True),
+                gr.update(choices=_get_unfinished_choices(current_user)),
+                gr.update(choices=_get_history_choices(current_user), value=None),
+                gr.update(visible=False, value=""),
+            )
         chat_history.append({"role": "user", "content": message})
 
         end_reason = session.end_reason if session else ""
