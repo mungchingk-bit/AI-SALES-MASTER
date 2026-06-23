@@ -20,6 +20,15 @@ def _has_selected_style(style_name: str | None) -> bool:
     return bool(style_name and style_name != _LEGACY_DEFAULT_STYLE)
 
 
+def _resolve_training_style(style_name, current_user, login_role, profiles):
+    """Resolve an explicit style or the logged-in salesperson's own style."""
+    if _has_selected_style(style_name):
+        return next((p for p in profiles if p.name == style_name), None)
+    if login_role == "sales" and current_user:
+        return next((p for p in profiles if current_user in (p.name or "")), None)
+    return None
+
+
 def _get_training_mgr():
     global _training_mgr
     if _training_mgr is None:
@@ -367,34 +376,25 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
         from prompts.customer_simulation import build_diverse_scenario
         from storage.scenario_history_store import ScenarioHistoryStore
 
-        if not _has_selected_style(style_name):
-            return (
-                None, [], "未开始", "-",
-                gr.update(interactive=False), gr.update(interactive=False),
-                gr.update(interactive=False), gr.update(interactive=True),
-                "请先选择销售风格，未选择时不能开始训练。",
-                gr.update(visible=False, value=""),
-                gr.update(choices=_get_unfinished_choices(current_user), value=None),
-                gr.update(choices=_get_history_choices(current_user), value=None),
-            )
-
         training_mgr = _get_training_mgr()
-        style_profile_id = None
         profiles = style_store.list_all()
-        for p in profiles:
-            if p.name == style_name:
-                style_profile_id = p.id
-                break
-        if not style_profile_id:
+        login_role = _get_login_role(login_username)
+        style_profile = _resolve_training_style(style_name, current_user, login_role, profiles)
+        if not style_profile:
+            if login_role == "sales":
+                status_message = "未找到你的个人风格档案，请先在风格管理中生成，或手动选择其他风格。"
+            else:
+                status_message = "管理员开始训练前需要选择销售风格。"
             return (
                 None, [], "未开始", "-",
                 gr.update(interactive=False), gr.update(interactive=False),
                 gr.update(interactive=False), gr.update(interactive=True),
-                "所选销售风格已不存在，请刷新页面后重新选择。",
+                status_message,
                 gr.update(visible=False, value=""),
                 gr.update(choices=_get_unfinished_choices(current_user), value=None),
                 gr.update(choices=_get_history_choices(current_user), value=None),
             )
+        style_profile_id = style_profile.id
 
         # 动态难度：自动模式根据历史评分推荐
         if difficulty == "auto" or not difficulty:
@@ -683,7 +683,7 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
                 value="AI做客户，我练销售", label="训练模式",
             )
             style_dropdown = gr.Dropdown(
-                choices=get_style_choices(), value=None, label="销售风格（必选）",
+                choices=get_style_choices(), value=None, label="销售风格（不选则使用本人风格）",
             )
             wedding_type_dropdown = gr.Dropdown(
                 choices=["智能推荐（自动避开重复）", "酒店婚宴", "户外草坪婚礼", "小型精品婚礼",

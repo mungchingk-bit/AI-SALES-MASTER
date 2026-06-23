@@ -209,6 +209,7 @@ def create_evaluation_tab(user_dropdown=None) -> None:
 
     # --- Share functions ---
     current_eval_report = gr.State(None)
+    evaluation_version = gr.State("")
 
     def generate_and_store_evaluation(session_choice, current_user=""):
         try:
@@ -268,6 +269,50 @@ def create_evaluation_tab(user_dropdown=None) -> None:
             correction_defaults.append(5)
             correction_defaults.append("")
         return chart, report_text, summary_text, progression_text, None, gr.update(choices=[], value=[]), *correction_defaults
+
+    def poll_evaluation(session_choice, current_user="", last_version=""):
+        """Refresh visible report sections when a background job saves progress."""
+        no_change = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), last_version)
+        if not session_choice:
+            return no_change
+
+        short_id = session_choice.split("|")[-1].strip()
+        session = next((s for s in session_store.list_all() if s.id.startswith(short_id)), None)
+        if not session or (current_user and session.user and session.user != current_user):
+            return no_change
+
+        report = _get_eval_store().load_by_session(session.id)
+        if not report:
+            return no_change
+
+        version = f"{report.id}:{len(report.dimension_scores)}:{bool(report.conversation_summary)}:{bool(report.deal_progression)}"
+        if version == last_version:
+            return no_change
+
+        section_choices = []
+        section_defaults = []
+        for label, available in (
+            ("各维度评分", bool(report.dimension_scores)),
+            ("优势总结", bool(report.strengths)),
+            ("改进建议", bool(report.improvements)),
+            ("风格契合度", bool(report.style_alignment)),
+            ("实战总结", bool(report.conversation_summary)),
+            ("签单路径分析", bool(report.deal_progression)),
+        ):
+            if available:
+                section_choices.append(label)
+                if label != "风格契合度":
+                    section_defaults.append(label)
+
+        return (
+            _generate_radar_chart(report),
+            _format_dimension_report(report),
+            _format_summary(report),
+            _format_deal_progression(report),
+            report,
+            gr.update(choices=section_choices, value=section_defaults),
+            version,
+        )
 
     def _build_eval_selected_md(report, selected_items):
         if not report or not selected_items:
@@ -441,6 +486,8 @@ def create_evaluation_tab(user_dropdown=None) -> None:
     eval_share_text_output = gr.Textbox(label="复制内容", interactive=False, lines=3)
     eval_share_file_output = gr.File(label="下载文件")
 
+    eval_refresh_timer = gr.Timer(5)
+
     def refresh_sessions(current_user=""):
         choices = get_session_choices(current_user)
         return gr.update(choices=choices, value=choices[0] if choices else None)
@@ -479,3 +526,11 @@ def create_evaluation_tab(user_dropdown=None) -> None:
     eval_share_copy_btn.click(fn=eval_share_copy, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_text_output])
     eval_share_docx_btn.click(fn=eval_share_docx, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_file_output])
     eval_share_image_btn.click(fn=eval_share_image, inputs=[current_eval_report, eval_share_select], outputs=[eval_share_file_output])
+    eval_refresh_timer.tick(
+        fn=poll_evaluation,
+        inputs=[session_dropdown, user_dropdown or gr.State(""), evaluation_version],
+        outputs=[radar_chart, report_display, summary_display, progression_display, current_eval_report, eval_share_select, evaluation_version],
+        queue=False,
+        show_progress="hidden",
+        api_visibility="private",
+    )
