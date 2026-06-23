@@ -13,6 +13,12 @@ _eval_store = None
 _session_store = None
 _style_extractor = None
 
+_LEGACY_DEFAULT_STYLE = "不指定（默认顾问式）"
+
+
+def _has_selected_style(style_name: str | None) -> bool:
+    return bool(style_name and style_name != _LEGACY_DEFAULT_STYLE)
+
 
 def _get_training_mgr():
     global _training_mgr
@@ -358,7 +364,7 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
 
     def get_style_choices(current_user=""):
         profiles = style_store.list_all()
-        choices = ["不指定（默认顾问式）"]
+        choices = []
         for p in profiles:
             choices.append(p.name)
         return choices
@@ -367,14 +373,34 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
         from prompts.customer_simulation import build_diverse_scenario
         from storage.scenario_history_store import ScenarioHistoryStore
 
+        if not _has_selected_style(style_name):
+            return (
+                None, [], "未开始", "-",
+                gr.update(interactive=False), gr.update(interactive=False),
+                gr.update(interactive=False), gr.update(interactive=True),
+                "请先选择销售风格，未选择时不能开始训练。",
+                gr.update(visible=False, value=""),
+                gr.update(choices=_get_unfinished_choices(current_user), value=None),
+                gr.update(choices=_get_history_choices(current_user), value=None),
+            )
+
         training_mgr = _get_training_mgr()
         style_profile_id = None
-        if style_name and style_name != "不指定（默认顾问式）":
-            profiles = style_store.list_all()
-            for p in profiles:
-                if p.name == style_name:
-                    style_profile_id = p.id
-                    break
+        profiles = style_store.list_all()
+        for p in profiles:
+            if p.name == style_name:
+                style_profile_id = p.id
+                break
+        if not style_profile_id:
+            return (
+                None, [], "未开始", "-",
+                gr.update(interactive=False), gr.update(interactive=False),
+                gr.update(interactive=False), gr.update(interactive=True),
+                "所选销售风格已不存在，请刷新页面后重新选择。",
+                gr.update(visible=False, value=""),
+                gr.update(choices=_get_unfinished_choices(current_user), value=None),
+                gr.update(choices=_get_history_choices(current_user), value=None),
+            )
 
         # 动态难度：自动模式根据历史评分推荐
         if difficulty == "auto" or not difficulty:
@@ -663,7 +689,7 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
                 value="AI做客户，我练销售", label="训练模式",
             )
             style_dropdown = gr.Dropdown(
-                choices=get_style_choices(), value="不指定（默认顾问式）", label="销售风格",
+                choices=get_style_choices(), value=None, label="销售风格（必选）",
             )
             wedding_type_dropdown = gr.Dropdown(
                 choices=["智能推荐（自动避开重复）", "酒店婚宴", "户外草坪婚礼", "小型精品婚礼",
@@ -753,7 +779,7 @@ def create_training_tab(user_dropdown=None, login_user_state=None):
         outputs=[history_dropdown],
     )
     if user_dropdown is not None:
-        user_dropdown.change(fn=lambda current_user: gr.update(choices=get_style_choices(current_user), value="不指定（默认顾问式）"), inputs=[user_dropdown], outputs=[style_dropdown])
+        user_dropdown.change(fn=lambda current_user: gr.update(choices=get_style_choices(current_user), value=None), inputs=[user_dropdown], outputs=[style_dropdown])
         user_dropdown.change(fn=refresh_unfinished, inputs=[user_dropdown], outputs=[unfinished_dropdown])
         user_dropdown.change(fn=refresh_history, inputs=[user_dropdown], outputs=[history_dropdown])
     view_history_btn.click(
