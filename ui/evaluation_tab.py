@@ -10,6 +10,7 @@ matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu S
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 import config
+from core.evaluation_jobs import schedule_evaluation
 
 # Lazy singletons
 _evaluator = None
@@ -77,12 +78,18 @@ def create_evaluation_tab(user_dropdown=None) -> None:
         if not full_id:
             return "", "未找到训练记录", "", ""
         existing = _get_eval_store().load_by_session(full_id)
-        if existing:
-            report = existing
-            if not report.conversation_summary or not report.deal_progression:
-                report = _get_evaluator().evaluate(full_id, include_extras=True, extract_phrases=False) or report
-        else:
-            report = _get_evaluator().evaluate(full_id, include_extras=True, extract_phrases=False)
+        if not existing:
+            schedule_evaluation(full_id)
+            return (
+                "",
+                "基础评分正在后台生成，页面可以继续操作。",
+                "实战总结将在后台自动补齐。",
+                "签单路径将在后台自动补齐。",
+            )
+
+        report = existing
+        if not report.conversation_summary or not report.deal_progression:
+            schedule_evaluation(full_id)
         if not report:
             return "", "评估生成失败", "", ""
         chart = _generate_radar_chart(report)
@@ -163,13 +170,13 @@ def create_evaluation_tab(user_dropdown=None) -> None:
 
     def _format_summary(report):
         if not report.conversation_summary:
-            return "暂无实战总结"
+            return "实战总结正在后台生成，页面可以继续操作。"
         return report.conversation_summary
 
     def _format_deal_progression(report):
         dp = report.deal_progression
         if not dp:
-            return "暂无签单路径分析"
+            return "签单路径正在后台生成，页面可以继续操作。"
         lines = ["## 签单路径分析\n"]
         if dp.get("current_stage"):
             lines.append(f"**当前阶段**：{dp['current_stage']}")
@@ -204,7 +211,14 @@ def create_evaluation_tab(user_dropdown=None) -> None:
     current_eval_report = gr.State(None)
 
     def generate_and_store_evaluation(session_choice, current_user=""):
-        chart, report_text, summary_text, progression_text = generate_evaluation(session_choice, current_user)
+        try:
+            chart, report_text, summary_text, progression_text = generate_evaluation(session_choice, current_user)
+        except Exception as exc:
+            print(f"[evaluation] UI load failed: {exc}", flush=True)
+            chart = ""
+            report_text = "评估读取失败，后台任务不会阻塞页面。"
+            summary_text = ""
+            progression_text = ""
         # Build share checkboxes + populate correction modal
         section_choices = []
         section_defaults = []

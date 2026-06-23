@@ -43,9 +43,10 @@ class Evaluator:
                 if include_extras and (not existing.conversation_summary or not existing.deal_progression):
                     if not existing.conversation_summary:
                         existing.conversation_summary = self._generate_conversation_summary(session)
+                        self.evaluation_store.save(existing)
                     if not existing.deal_progression:
                         existing.deal_progression = self._generate_deal_progression(session)
-                    self.evaluation_store.save(existing)
+                        self.evaluation_store.save(existing)
                 return existing
 
         # Load style profile if available
@@ -82,16 +83,17 @@ class Evaluator:
         # Build report
         report = self._build_report(session_id, result, session)
 
-        if include_extras:
-            report.conversation_summary = self._generate_conversation_summary(session)
-            report.deal_progression = self._generate_deal_progression(session)
-
-        # Save and return
+        # Persist the base score before slower optional sections. The UI can
+        # display this immediately while summary and progression run in back.
         self.evaluation_store.save(report)
-
-        # Update session with evaluation link
         session.evaluation_id = report.id
         self.session_store.save(session)
+
+        if include_extras:
+            report.conversation_summary = self._generate_conversation_summary(session)
+            self.evaluation_store.save(report)
+            report.deal_progression = self._generate_deal_progression(session)
+            self.evaluation_store.save(report)
 
         if extract_phrases:
             extracted = 0

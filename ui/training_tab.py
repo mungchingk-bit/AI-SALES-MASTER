@@ -119,14 +119,6 @@ def _update_style_from_training_session(session_id: str) -> None:
     _get_session_store().save(session)
 
 
-def _run_background_evaluation(session_id: str) -> None:
-    try:
-        evaluator = _get_evaluator()
-        evaluator.evaluate(session_id, include_extras=False, extract_phrases=False)
-    except Exception:
-        pass
-
-
 def _run_background_style_update(session_id: str) -> None:
     time.sleep(5)
     try:
@@ -136,7 +128,9 @@ def _run_background_style_update(session_id: str) -> None:
 
 
 def _start_post_training_tasks(session_id: str) -> None:
-    Thread(target=_run_background_evaluation, args=(session_id,), daemon=True).start()
+    from core.evaluation_jobs import schedule_evaluation
+
+    schedule_evaluation(session_id)
     Thread(target=_run_background_style_update, args=(session_id,), daemon=True).start()
 
 
