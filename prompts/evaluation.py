@@ -71,6 +71,8 @@ def build_evaluation_prompt(
 ) -> str:
     """Build an evaluation prompt from session data."""
     mode = session_data.get("mode", "customer")
+    style_name = style_profile.get("name", "专业顾问") if style_profile else "专业顾问"
+    style_summary = style_profile.get("description", "专业顾问式销售") if style_profile else "专业顾问式销售"
 
     if mode == "customer":
         mode_description = "用户扮演销售，AI扮演客户"
@@ -78,14 +80,17 @@ def build_evaluation_prompt(
     else:
         mode_description = "AI扮演销售，用户扮演客户进行学习"
         style_evaluation_context = (
-            f"AI是否准确体现了「{style_profile.get('name', '')}」风格的特征？"
+            f"AI是否准确体现了「{style_name}」风格的特征？"
             "用户是否从对话中学习到了该风格的要点？"
         )
 
     # Format conversation
     conversation_lines = []
     for i, msg in enumerate(session_data.get("conversation", [])):
-        speaker = "销售" if msg.get("role") == "user" else "客户"
+        if mode == "customer":
+            speaker = "销售" if msg.get("role") == "user" else "客户"
+        else:
+            speaker = "客户" if msg.get("role") == "user" else "销售"
         conversation_lines.append(f"第{i+1}轮-{speaker}：{msg.get('content', '')}")
     full_conversation = "\n".join(conversation_lines)
 
@@ -96,9 +101,6 @@ def build_evaluation_prompt(
         f"行业：{scenario.get('industry', '未知')}\n"
         f"难度：{scenario.get('difficulty', '中等')}"
     )
-
-    style_name = style_profile.get("name", "默认") if style_profile else "默认"
-    style_summary = style_profile.get("description", "专业顾问式销售") if style_profile else "专业顾问式销售"
 
     prompt = EVALUATION_PROMPT.format(
         mode_description=mode_description,
